@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Дубликаты — Реестр цен{% endblock %}
+{% block content %}
+
+<h1>Возможные дубликаты</h1>
+<p class="muted">
+    Позиции у одного поставщика, которые отличаются только регистром или пробелами —
+    вероятно, это один и тот же материал, записанный дважды по-разному.
+</p>
+
+{% for group in groups %}
+<div class="dup-group">
+    <p class="dup-supplier">Поставщик: {{ group[0].supplier }}</p>
+    <ul>
+        {% for item in group %}
+        <li>{{ item.name }} — {{ "%.2f"|format(item.price) }}</li>
+        {% endfor %}
+    </ul>
+</div>
+{% else %}
+<p class="muted">Дубликатов не найдено 🎉</p>
+{% endfor %}
+
+{% endblock %}
