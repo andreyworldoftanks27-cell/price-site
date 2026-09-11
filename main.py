@@ -172,7 +172,7 @@ async def catalog(request: Request, category: str = "", supplier: str = "", q: s
     ctx = base_ctx(request)
     ctx.update({
         "grouped": grouped,
-        "category_order": [c for c in FIXED_CATEGORIES if c in grouped],
+        "category_order": [c for c in FIXED_CATEGORIES if c in grouped] + [c for c in grouped if c not in FIXED_CATEGORIES],
         "category_tabs": category_tabs,
         "suppliers": suppliers,
         "selected_category": category,
