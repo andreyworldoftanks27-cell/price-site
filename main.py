@@ -264,8 +264,7 @@ async def catalog(
                 })
             compare_groups.sort(key=lambda g: g["name"])
 
-    total_all = sum(counts_raw.values())
-    category_tabs = [{"name": c, "count": counts_raw.get(c, 0)} for c in FIXED_CATEGORIES]
+        total_all = sum(counts_raw.values())
 
     materials = []
     for m, supplier_name, category_name, prev_price in rows:
