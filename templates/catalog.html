@@ -47,25 +47,39 @@
 
 <p class="muted" id="shownCounter">{{ t.shown_label.replace("{n}", total_shown|string) }}</p>
 
-{% macro material_row(m, show_category=False) %}
-<div class="material-row clickable-row" data-search="{{ m.name|lower }}" onclick="location.href='/material/{{ m.id }}/history'">
-    <div class="material-main">
-        <div class="material-name">{{ m.name }}</div>
-        <div class="material-meta muted">
-            {%- if show_category %}{{ m.category }} · {% endif -%}
-            {{ m.price_date }} · {{ m.supplier }}
-            {%- if m.quantity is not none %} · {{ t.quantity_label }}: {{ "%.2f"|format(m.quantity) }}{% endif %}
-        </div>
-    </div>
-    <div class="material-side">
-        <div class="material-price">{{ "%.2f"|format(m.price) }} <span class="material-unit">{{ t.uah_per }}{{ m.unit }}</span></div>
-        {% if m.prev_price is not none and m.prev_price != m.price %}
-        <div class="material-trend {% if m.price > m.prev_price %}delta-up{% else %}delta-down{% endif %}">
-            {{ "%.2f"|format(m.prev_price) }} → {{ "%.2f"|format(m.price) }}
-        </div>
-        {% endif %}
-    </div>
-    <div class="row-arrow">→</div>
+{% macro material_table(items, show_category=False) %}
+<div class="table-wrap">
+<table class="data-table catalog-table">
+    <thead>
+        <tr>
+            <th>{{ t.th_material }}</th>
+            {% if show_category %}<th>{{ t.th_category }}</th>{% endif %}
+            <th>{{ t.th_supplier }}</th>
+            <th>{{ t.th_price_date }}</th>
+            <th class="num">{{ t.th_quantity }}</th>
+            <th class="num">{{ t.th_price }}</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for m in items %}
+        <tr class="material-row clickable-row" data-search="{{ m.name|lower }}" onclick="location.href='/material/{{ m.id }}/history'">
+            <td class="material-name">{{ m.name }}</td>
+            {% if show_category %}<td class="muted">{{ m.category }}</td>{% endif %}
+            <td class="muted">{{ m.supplier }}</td>
+            <td class="muted">{{ m.price_date }}</td>
+            <td class="num">{% if m.quantity is not none %}{{ "%.2f"|format(m.quantity) }}{% else %}—{% endif %}</td>
+            <td class="num price-cell">
+                <div class="material-price">{{ "%.2f"|format(m.price) }} <span class="material-unit">{{ t.uah_per }}{{ m.unit }}</span></div>
+                {% if m.prev_price is not none and m.prev_price != m.price %}
+                <div class="material-trend {% if m.price > m.prev_price %}delta-up{% else %}delta-down{% endif %}">
+                    {{ "%.2f"|format(m.prev_price) }} → {{ "%.2f"|format(m.price) }}
+                </div>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
 </div>
 {% endmacro %}
 
@@ -77,35 +91,41 @@
             <span class="category-section-name">{{ group.name }}</span>
             <span class="category-section-count">{{ group.supplier_count }} {{ t.compare_suppliers_count }}</span>
         </div>
-        <div class="material-list">
-            {% for m in group.offers %}
-            <div class="material-row clickable-row {% if loop.first %}compare-best{% endif %}" data-search="{{ m.name|lower }}" onclick="location.href='/material/{{ m.id }}/history'">
-                <div class="material-main">
-                    <div class="material-name">
+        <div class="table-wrap">
+        <table class="data-table catalog-table">
+            <thead>
+                <tr>
+                    <th>{{ t.th_supplier }}</th>
+                    <th>{{ t.th_category }}</th>
+                    <th class="num">{{ t.th_quantity }}</th>
+                    <th class="num">{{ t.th_price }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for m in group.offers %}
+                <tr class="material-row clickable-row {% if loop.first %}compare-best{% endif %}" data-search="{{ m.name|lower }}" onclick="location.href='/material/{{ m.id }}/history'">
+                    <td class="material-name">
                         {{ m.supplier }}
                         {% if loop.first %}<span class="compare-badge">{{ t.compare_cheapest }}</span>{% endif %}
-                    </div>
-                    <div class="material-meta muted">{{ m.category }}{% if m.quantity is not none %} · {{ t.quantity_label }}: {{ "%.2f"|format(m.quantity) }}{% endif %}</div>
-                </div>
-                <div class="material-side">
-                    <div class="material-price">{{ "%.2f"|format(m.price) }} <span class="material-unit">{{ t.uah_per }}{{ m.unit }}</span></div>
-                </div>
-                <div class="row-arrow">→</div>
-            </div>
-            {% endfor %}
+                    </td>
+                    <td class="muted">{{ m.category }}</td>
+                    <td class="num">{% if m.quantity is not none %}{{ "%.2f"|format(m.quantity) }}{% else %}—{% endif %}</td>
+                    <td class="num price-cell">{{ "%.2f"|format(m.price) }} <span class="material-unit">{{ t.uah_per }}{{ m.unit }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
         </div>
     </section>
     {% else %}
     <p class="muted">{{ t.compare_none }}</p>
     {% endfor %}
 {% elif flat_mode %}
-    <div class="material-list">
-        {% for m in flat_materials %}
-            {{ material_row(m, show_category=True) }}
-        {% else %}
+    {% if flat_materials %}
+        {{ material_table(flat_materials, show_category=True) }}
+    {% else %}
         <p class="muted">{{ t.not_found }}</p>
-        {% endfor %}
-    </div>
+    {% endif %}
 {% else %}
     {% for cat_name in category_order %}
     <section class="category-section">
@@ -113,11 +133,7 @@
             <span class="category-section-name">{{ cat_name }}</span>
             <span class="category-section-count">{{ grouped[cat_name]|length }}</span>
         </div>
-        <div class="material-list">
-            {% for m in grouped[cat_name] %}
-                {{ material_row(m) }}
-            {% endfor %}
-        </div>
+        {{ material_table(grouped[cat_name]) }}
     </section>
     {% else %}
     <p class="muted">{{ t.not_found }}</p>
