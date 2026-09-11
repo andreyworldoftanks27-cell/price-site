@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request, Form
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import select, func
 
@@ -19,7 +20,35 @@ app.add_middleware(SessionMiddleware, secret_key=config.SECRET_KEY)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["url_quote"] = quote
-templates.env.filters["tojson"] = lambda v: json.dumps(v, ensure_ascii=False)
+
+
+def _tojson(value) -> Markup:
+    """
+    JSON-фильтр, безопасный и для <script>, и для HTML-атрибутов.
+
+    Раньше здесь был plain json.dumps(), который Jinja2 (autoescape=True)
+    затем HTML-экранировал: кавычки превращались в "&#34;". Внутри onclick="..."
+    браузер декодирует эти сущности обратно и всё работает, но внутри <script>
+    текст не проходит decode — получается синтаксическая ошибка вида
+    "Unexpected token '&'", которая ломает ВЕСЬ script-блок целиком (включая
+    вообще не связанные с этим значением функции типа selectCategory()).
+    Именно поэтому не работали ни кнопки категорий, ни живой поиск.
+
+    Фикс — как в Flask: экранируем опасные для <script> символы вручную
+    (\\u003c и т.п.) и оборачиваем в Markup, чтобы Jinja не экранировала
+    результат повторно.
+    """
+    dumped = json.dumps(value, ensure_ascii=False)
+    dumped = (
+        dumped.replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace("'", "\\u0027")
+    )
+    return Markup(dumped)
+
+
+templates.env.filters["tojson"] = _tojson
 
 # Тот же фиксированный список категорий, что использует бот при классификации.
 # Держим его и здесь, чтобы рисовать вкладки-фильтры даже для категорий,
@@ -39,6 +68,15 @@ FIXED_CATEGORIES = [
     "Спецодяг та безпека",
     "Інше",
 ]
+
+# Допустимые значения сортировки каталога (используются и в query-параметре,
+# и как ключи переводов sort_*).
+SORT_OPTIONS = ("name", "price_asc", "price_desc", "qty_desc", "qty_asc", "supplier")
+
+
+def _normalize_name(name: str) -> str:
+    """Та же нормализация, что и на странице дублей — по ней ищем совпадения между поставщиками."""
+    return " ".join(name.lower().split())
 
 
 def get_lang(request: Request) -> str:
@@ -92,9 +130,20 @@ async def logout(request: Request):
 
 
 @app.get("/", response_class=HTMLResponse)
-async def catalog(request: Request, category: str = "", supplier: str = "", q: str = ""):
+async def catalog(
+    request: Request,
+    category: str = "",
+    supplier: str = "",
+    q: str = "",
+    sort: str = "name",
+    compare: str = "",
+):
     if not require_login(request):
         return RedirectResponse("/login", status_code=302)
+
+    if sort not in SORT_OPTIONS:
+        sort = "name"
+    compare_on = compare == "1"
 
     async with get_session() as session:
         suppliers = (await session.execute(select(Supplier.name).order_by(Supplier.name))).scalars().all()
@@ -119,7 +168,6 @@ async def catalog(request: Request, category: str = "", supplier: str = "", q: s
             )
             .join(Supplier, Material.supplier_id == Supplier.id)
             .join(Category, Material.category_id == Category.id)
-            .order_by(Category.name, Material.name)
         )
         if supplier:
             stmt = stmt.where(Supplier.name.ilike(f"%{supplier}%"))
@@ -143,7 +191,70 @@ async def catalog(request: Request, category: str = "", supplier: str = "", q: s
         if category:
             stmt = stmt.where(Category.name == category)
 
+        # Сортировка. По умолчанию ("name") — по категории и названию, как раньше
+        # (список рисуется секциями по категориям). Любая другая сортировка —
+        # это сквозной список по всем выбранным категориям, поэтому в шаблоне
+        # для неё используется отдельный "плоский" режим отображения.
+        if sort == "price_asc":
+            stmt = stmt.order_by(Material.current_price.asc(), Material.name.asc())
+        elif sort == "price_desc":
+            stmt = stmt.order_by(Material.current_price.desc(), Material.name.asc())
+        elif sort == "qty_desc":
+            stmt = stmt.order_by(Material.quantity.desc().nulls_last(), Material.name.asc())
+        elif sort == "qty_asc":
+            stmt = stmt.order_by(Material.quantity.asc().nulls_last(), Material.name.asc())
+        elif sort == "supplier":
+            stmt = stmt.order_by(Supplier.name.asc(), Material.name.asc())
+        else:
+            stmt = stmt.order_by(Category.name.asc(), Material.name.asc())
+
         rows = (await session.execute(stmt.limit(1000))).all()
+
+        # Режим "порівняти ціни": для тих самих позицій (однакова назва) від
+        # РІЗНИХ постачальників — показуємо їх поруч, найдешевша зверху.
+        # Рахуємо окремим (нефільтрованим по категорії) запитом, щоб порівняння
+        # не ламалось, коли обрана лише одна категорія.
+        compare_groups = []
+        if compare_on:
+            cmp_stmt = (
+                select(Material, Supplier.name.label("supplier_name"), Category.name.label("category_name"))
+                .join(Supplier, Material.supplier_id == Supplier.id)
+                .join(Category, Material.category_id == Category.id)
+            )
+            if supplier:
+                cmp_stmt = cmp_stmt.where(Supplier.name.ilike(f"%{supplier}%"))
+            if q:
+                cmp_stmt = cmp_stmt.where(Material.name.ilike(f"%{q}%"))
+            if category:
+                cmp_stmt = cmp_stmt.where(Category.name == category)
+            cmp_rows = (await session.execute(cmp_stmt.limit(5000))).all()
+
+            groups_by_key: dict[str, list] = defaultdict(list)
+            for m, supplier_name, category_name in cmp_rows:
+                key = _normalize_name(m.name)
+                groups_by_key[key].append({
+                    "id": m.id,
+                    "name": m.name,
+                    "unit": m.unit or "шт",
+                    "quantity": m.quantity,
+                    "price": float(m.current_price),
+                    "supplier": supplier_name,
+                    "category": category_name,
+                })
+
+            for items in groups_by_key.values():
+                distinct_suppliers = {it["supplier"] for it in items}
+                if len(distinct_suppliers) < 2:
+                    continue
+                items.sort(key=lambda it: it["price"])
+                compare_groups.append({
+                    "name": items[0]["name"],
+                    "supplier_count": len(distinct_suppliers),
+                    # НЕ называть ключ "items" — это дальше словарь, и в Jinja
+                    # group.items вызовет dict.items() вместо чтения ключа.
+                    "offers": items,
+                })
+            compare_groups.sort(key=lambda g: g["name"])
 
     total_all = sum(counts_raw.values())
     category_tabs = [{"name": c, "count": counts_raw.get(c, 0)} for c in FIXED_CATEGORIES]
@@ -164,10 +275,15 @@ async def catalog(request: Request, category: str = "", supplier: str = "", q: s
             "category": category_name,
         })
 
-    # Группируем по категории для отображения секциями (как в референсе)
+    flat_mode = sort != "name" and not compare_on
+
+    # Группируем по категории для отображения секциями (как в референсе).
+    # В "плоском" режиме (сортировка не по умолчанию) секции не используются —
+    # список рисуется одним сквозным блоком в исходном порядке материалов.
     grouped = defaultdict(list)
-    for m in materials:
-        grouped[m["category"]].append(m)
+    if not flat_mode:
+        for m in materials:
+            grouped[m["category"]].append(m)
 
     ctx = base_ctx(request)
     ctx.update({
@@ -175,6 +291,11 @@ async def catalog(request: Request, category: str = "", supplier: str = "", q: s
         "category_order": [c for c in FIXED_CATEGORIES if c in grouped] + [c for c in grouped if c not in FIXED_CATEGORIES],
         "category_tabs": category_tabs,
         "suppliers": suppliers,
+        "sort": sort,
+        "compare": compare_on,
+        "compare_groups": compare_groups,
+        "flat_mode": flat_mode,
+        "flat_materials": materials if flat_mode else [],
         "selected_category": category,
         "selected_supplier": supplier,
         "query": q,
