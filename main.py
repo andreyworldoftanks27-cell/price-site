@@ -120,13 +120,41 @@ async def material_history(request: Request, material_id: int):
 
         supplier = await session.get(Supplier, material.supplier_id)
 
-        history = (
+        history_rows = (
             await session.execute(
                 select(PriceHistory)
                 .where(PriceHistory.material_id == material_id)
-                .order_by(PriceHistory.price_date.desc())
+                .order_by(PriceHistory.price_date.asc())
             )
         ).scalars().all()
+
+    # Считаем изменение цены относительно предыдущей записи (по возрастанию дат),
+    # затем разворачиваем в обратном порядке для отображения (сначала новые).
+    prices = [float(h.price) for h in history_rows]
+    min_price = min(prices) if prices else 0
+    max_price = max(prices) if prices else 1
+    price_range = max_price - min_price or 1
+
+    enriched = []
+    prev_price = None
+    for h, p in zip(history_rows, prices):
+        if prev_price is None:
+            delta, delta_pct = None, None
+        else:
+            delta = p - prev_price
+            delta_pct = (delta / prev_price * 100) if prev_price else None
+        bar_height = 10 + int((p - min_price) / price_range * 90)  # 10-100%
+        enriched.append({
+            "price_date": h.price_date,
+            "price": p,
+            "source_file": h.source_file,
+            "delta": delta,
+            "delta_pct": delta_pct,
+            "bar_height": bar_height,
+        })
+        prev_price = p
+
+    enriched.reverse()  # новые записи сверху
 
     return templates.TemplateResponse(
         "history.html",
@@ -134,7 +162,8 @@ async def material_history(request: Request, material_id: int):
             "request": request,
             "material": material,
             "supplier_name": supplier.name if supplier else "?",
-            "history": history,
+            "history": enriched,
+            "chart_points": enriched[::-1],  # для графика — хронологический порядок
         },
     )
 
