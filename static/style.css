@@ -111,6 +111,79 @@ mark {
 
 .container { padding: 28px 32px; max-width: 1140px; margin: 0 auto; }
 
+.catalog-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; }
+.catalog-head h1 { font-size: 24px; margin: 0; letter-spacing: -0.01em; }
+
+/* ---------- Category pills ---------- */
+.pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 4px 0 18px;
+}
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.pill:hover { border-color: var(--accent); }
+.pill.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.pill-count {
+    font-size: 11.5px;
+    font-weight: 700;
+    opacity: 0.75;
+    background: rgba(128,128,128,0.18);
+    border-radius: 10px;
+    padding: 1px 6px;
+}
+.pill.active .pill-count { background: rgba(0,0,0,0.15); }
+
+/* ---------- Category sections ---------- */
+.category-section { margin-bottom: 30px; }
+.category-section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+    border-bottom: 2px solid var(--border);
+}
+.category-section-name { font-weight: 800; font-size: 15px; }
+.category-section-count { color: var(--text-muted); font-size: 13px; }
+
+.material-list { display: flex; flex-direction: column; }
+.material-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 13px 6px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.1s ease;
+}
+.material-row:hover { background: var(--surface-hover); }
+.material-row:last-child { border-bottom: none; }
+
+.material-main { flex: 1; min-width: 0; }
+.material-name { font-weight: 600; font-size: 14.5px; }
+.material-meta { font-size: 12.5px; margin-top: 2px; }
+
+.material-side { text-align: right; white-space: nowrap; }
+.material-price { font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 15px; }
+.material-unit { font-family: 'Manrope', sans-serif; font-weight: 500; font-size: 11.5px; color: var(--text-muted); }
+.material-trend { font-family: 'IBM Plex Mono', monospace; font-size: 12px; margin-top: 2px; }
+
+.row-arrow { color: var(--text-muted); flex-shrink: 0; }
+
 /* ---------- Filters ---------- */
 .filters {
     display: flex;
