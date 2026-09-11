@@ -201,6 +201,9 @@ mark {
     font-size: 14px;
 }
 .filters input { min-width: 220px; }
+.filters select {
+    cursor: pointer;
+}
 .filters button {
     background: var(--accent);
     color: var(--accent-text);
@@ -210,6 +213,35 @@ mark {
 }
 .reset-link { color: var(--text-muted); align-self: center; font-size: 13px; text-decoration: none; }
 .reset-link:hover { color: var(--text); }
+
+.compare-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 4px;
+    color: var(--text-muted);
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+}
+.compare-toggle input { cursor: pointer; }
+
+.compare-desc { margin: -8px 0 16px; }
+.compare-group .material-row.compare-best { background: color-mix(in srgb, var(--price-down) 10%, transparent); }
+.compare-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 8px;
+    border-radius: 10px;
+    background: var(--price-down);
+    color: var(--accent-text);
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    vertical-align: middle;
+}
 
 .muted { color: var(--text-muted); font-size: 13px; }
 
