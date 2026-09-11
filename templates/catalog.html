@@ -2,65 +2,82 @@
 {% block title %}{{ t.nav_catalog }} — {{ t.site_title }}{% endblock %}
 {% block content %}
 
+<div class="catalog-head">
+    <h1>{{ t.site_title }}</h1>
+    <span class="muted">{{ total_all }} {{ t.total_materials_label }}</span>
+</div>
+
 <form method="get" class="filters" id="filterForm">
     <input type="text" name="q" id="searchInput" placeholder="{{ t.search_placeholder }}" value="{{ query }}" autocomplete="off">
-
-    <input type="text" name="category" list="categoryList" placeholder="{{ t.category_placeholder }}" value="{{ selected_category }}" autocomplete="off">
-    <datalist id="categoryList">
-        {% for c in categories %}<option value="{{ c }}">{% endfor %}
-    </datalist>
 
     <input type="text" name="supplier" list="supplierList" placeholder="{{ t.supplier_placeholder }}" value="{{ selected_supplier }}" autocomplete="off">
     <datalist id="supplierList">
         {% for s in suppliers %}<option value="{{ s }}">{% endfor %}
     </datalist>
+    <input type="hidden" name="category" id="categoryInput" value="{{ selected_category }}">
 
     <button type="submit">{{ t.filter_button }}</button>
     <a href="/" class="reset-link">{{ t.reset_link }}</a>
 </form>
 
+<div class="pill-row">
+    <button type="button" class="pill {% if not selected_category %}active{% endif %}" onclick="selectCategory('')">
+        {{ t.category_all }} <span class="pill-count">{{ total_all }}</span>
+    </button>
+    {% for tab in category_tabs %}
+    <button type="button" class="pill {% if tab.name == selected_category %}active{% endif %}" onclick="selectCategory({{ tab.name|tojson }})">
+        {{ tab.name }} <span class="pill-count">{{ tab.count }}</span>
+    </button>
+    {% endfor %}
+</div>
+
 <p class="muted" id="shownCounter">{{ t.shown_label.replace("{n}", total_shown|string) }}</p>
 
-<div class="table-wrap">
-<table class="data-table" id="dataTable">
-    <thead>
-        <tr>
-            <th>{{ t.th_material }}</th>
-            <th>{{ t.th_category }}</th>
-            <th>{{ t.th_supplier }}</th>
-            <th style="text-align:right">{{ t.th_price }}</th>
-            <th>{{ t.th_unit }}</th>
-            <th style="text-align:right">{{ t.th_quantity }}</th>
-            <th>{{ t.th_price_date }}</th>
-            <th></th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for m in materials %}
-        <tr class="clickable-row" data-search="{{ m.name|lower }}" onclick="location.href='/material/{{ m.id }}/history'">
-            <td class="material-name">{{ m.name }}</td>
-            <td><span class="category-tag">{{ m.category }}</span></td>
-            <td>{{ m.supplier }}</td>
-            <td class="price-cell">{{ "%.2f"|format(m.price) }}</td>
-            <td class="muted">{{ m.unit }}</td>
-            <td class="price-cell muted">{{ "%.2f"|format(m.quantity) if m.quantity is not none else "—" }}</td>
-            <td class="muted">{{ m.price_date }}</td>
-            <td class="row-arrow">→</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="8" class="muted">{{ t.not_found }}</td></tr>
+{% for cat_name in category_order %}
+<section class="category-section">
+    <div class="category-section-head">
+        <span class="category-section-name">{{ cat_name }}</span>
+        <span class="category-section-count">{{ grouped[cat_name]|length }}</span>
+    </div>
+    <div class="material-list">
+        {% for m in grouped[cat_name] %}
+        <div class="material-row clickable-row" data-search="{{ m.name|lower }}" onclick="location.href='/material/{{ m.id }}/history'">
+            <div class="material-main">
+                <div class="material-name">{{ m.name }}</div>
+                <div class="material-meta muted">
+                    {{ m.price_date }} · {{ m.supplier }}
+                    {%- if m.quantity is not none %} · {{ t.quantity_label }}: {{ "%.2f"|format(m.quantity) }}{% endif %}
+                </div>
+            </div>
+            <div class="material-side">
+                <div class="material-price">{{ "%.2f"|format(m.price) }} <span class="material-unit">{{ t.uah_per }}{{ m.unit }}</span></div>
+                {% if m.prev_price is not none and m.prev_price != m.price %}
+                <div class="material-trend {% if m.price > m.prev_price %}delta-up{% else %}delta-down{% endif %}">
+                    {{ "%.2f"|format(m.prev_price) }} → {{ "%.2f"|format(m.price) }}
+                </div>
+                {% endif %}
+            </div>
+            <div class="row-arrow">→</div>
+        </div>
         {% endfor %}
-    </tbody>
-</table>
-</div>
+    </div>
+</section>
+{% else %}
+<p class="muted">{{ t.not_found }}</p>
+{% endfor %}
 
 {% endblock %}
 
 {% block scripts %}
 <script>
+    function selectCategory(name) {
+        document.getElementById("categoryInput").value = name;
+        document.getElementById("filterForm").submit();
+    }
+
     (function () {
         var input = document.getElementById("searchInput");
-        var rows = Array.prototype.slice.call(document.querySelectorAll("#dataTable tbody tr.clickable-row"));
+        var rows = Array.prototype.slice.call(document.querySelectorAll(".material-row.clickable-row"));
         var counter = document.getElementById("shownCounter");
         var totalLabel = {{ t.shown_label|tojson }};
 
@@ -84,6 +101,11 @@
                 if (nameCell) highlight(nameCell, query);
             });
             if (counter) counter.textContent = totalLabel.replace("{n}", visible);
+            document.querySelectorAll(".category-section").forEach(function (section) {
+                var anyVisible = Array.prototype.slice.call(section.querySelectorAll(".material-row"))
+                    .some(function (r) { return r.style.display !== "none"; });
+                section.style.display = anyVisible ? "" : "none";
+            });
         });
     })();
 </script>
