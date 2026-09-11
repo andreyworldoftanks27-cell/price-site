@@ -1,27 +1,39 @@
 from collections import defaultdict
-from datetime import date
+from urllib.parse import quote
+import json
 
-from fastapi import FastAPI, Request, Form, Depends
+from fastapi import FastAPI, Request, Form
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-from sqlalchemy import select, func as sa_func
+from sqlalchemy import select
 
 import config
 from database import get_session, init_db
 from models import Material, Supplier, Category, PriceHistory
+from i18n import get_translations, DEFAULT_LANG
 
-app = FastAPI(title="Реестр цен")
+app = FastAPI(title="Реєстр цін")
 app.add_middleware(SessionMiddleware, secret_key=config.SECRET_KEY)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+templates.env.globals["url_quote"] = quote
+templates.env.filters["tojson"] = lambda v: json.dumps(v, ensure_ascii=False)
+
+
+def get_lang(request: Request) -> str:
+    lang = request.cookies.get("lang", DEFAULT_LANG)
+    return lang if lang in ("uk", "ru") else DEFAULT_LANG
+
+
+def base_ctx(request: Request) -> dict:
+    lang = get_lang(request)
+    return {"request": request, "lang": lang, "t": get_translations(lang)}
 
 
 def require_login(request: Request):
-    if not request.session.get("logged_in"):
-        return False
-    return True
+    return bool(request.session.get("logged_in"))
 
 
 @app.on_event("startup")
@@ -29,9 +41,19 @@ async def on_startup():
     await init_db()
 
 
+@app.get("/set-lang/{lang_code}")
+async def set_lang(lang_code: str, back: str = "/"):
+    resp = RedirectResponse(back if back.startswith("/") else "/")
+    if lang_code in ("uk", "ru"):
+        resp.set_cookie("lang", lang_code, max_age=60 * 60 * 24 * 365)
+    return resp
+
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    ctx = base_ctx(request)
+    ctx["error"] = None
+    return templates.TemplateResponse("login.html", ctx)
 
 
 @app.post("/login")
@@ -39,9 +61,9 @@ async def login_submit(request: Request, password: str = Form(...)):
     if password == config.SITE_PASSWORD:
         request.session["logged_in"] = True
         return RedirectResponse("/", status_code=302)
-    return templates.TemplateResponse(
-        "login.html", {"request": request, "error": "Неверный пароль"}, status_code=401
-    )
+    ctx = base_ctx(request)
+    ctx["error"] = get_translations(get_lang(request))["login_error"]
+    return templates.TemplateResponse("login.html", ctx, status_code=401)
 
 
 @app.get("/logout")
@@ -51,12 +73,7 @@ async def logout(request: Request):
 
 
 @app.get("/", response_class=HTMLResponse)
-async def catalog(
-    request: Request,
-    category: str = "",
-    supplier: str = "",
-    q: str = "",
-):
+async def catalog(request: Request, category: str = "", supplier: str = "", q: str = ""):
     if not require_login(request):
         return RedirectResponse("/login", status_code=302)
 
@@ -70,11 +87,10 @@ async def catalog(
             .join(Category, Material.category_id == Category.id)
             .order_by(Material.name)
         )
-
         if category:
-            stmt = stmt.where(Category.name == category)
+            stmt = stmt.where(Category.name.ilike(f"%{category}%"))
         if supplier:
-            stmt = stmt.where(Supplier.name == supplier)
+            stmt = stmt.where(Supplier.name.ilike(f"%{supplier}%"))
         if q:
             stmt = stmt.where(Material.name.ilike(f"%{q}%"))
 
@@ -85,6 +101,7 @@ async def catalog(
             "id": m.id,
             "name": m.name,
             "unit": m.unit,
+            "quantity": m.quantity,
             "price": m.current_price,
             "price_date": m.price_date,
             "supplier": supplier_name,
@@ -93,19 +110,17 @@ async def catalog(
         for m, supplier_name, category_name in rows
     ]
 
-    return templates.TemplateResponse(
-        "catalog.html",
-        {
-            "request": request,
-            "materials": materials,
-            "categories": categories,
-            "suppliers": suppliers,
-            "selected_category": category,
-            "selected_supplier": supplier,
-            "query": q,
-            "total_shown": len(materials),
-        },
-    )
+    ctx = base_ctx(request)
+    ctx.update({
+        "materials": materials,
+        "categories": categories,
+        "suppliers": suppliers,
+        "selected_category": category,
+        "selected_supplier": supplier,
+        "query": q,
+        "total_shown": len(materials),
+    })
+    return templates.TemplateResponse("catalog.html", ctx)
 
 
 @app.get("/material/{material_id}/history", response_class=HTMLResponse)
@@ -116,7 +131,7 @@ async def material_history(request: Request, material_id: int):
     async with get_session() as session:
         material = await session.get(Material, material_id)
         if material is None:
-            return HTMLResponse("Материал не найден", status_code=404)
+            return HTMLResponse("Not found", status_code=404)
 
         supplier = await session.get(Supplier, material.supplier_id)
 
@@ -128,8 +143,6 @@ async def material_history(request: Request, material_id: int):
             )
         ).scalars().all()
 
-    # Считаем изменение цены относительно предыдущей записи (по возрастанию дат),
-    # затем разворачиваем в обратном порядке для отображения (сначала новые).
     prices = [float(h.price) for h in history_rows]
     min_price = min(prices) if prices else 0
     max_price = max(prices) if prices else 1
@@ -143,38 +156,26 @@ async def material_history(request: Request, material_id: int):
         else:
             delta = p - prev_price
             delta_pct = (delta / prev_price * 100) if prev_price else None
-        bar_height = 10 + int((p - min_price) / price_range * 90)  # 10-100%
+        bar_height = 10 + int((p - min_price) / price_range * 90)
         enriched.append({
-            "price_date": h.price_date,
-            "price": p,
-            "source_file": h.source_file,
-            "delta": delta,
-            "delta_pct": delta_pct,
-            "bar_height": bar_height,
+            "price_date": h.price_date, "price": p, "source_file": h.source_file,
+            "delta": delta, "delta_pct": delta_pct, "bar_height": bar_height,
         })
         prev_price = p
+    enriched.reverse()
 
-    enriched.reverse()  # новые записи сверху
-
-    return templates.TemplateResponse(
-        "history.html",
-        {
-            "request": request,
-            "material": material,
-            "supplier_name": supplier.name if supplier else "?",
-            "history": enriched,
-            "chart_points": enriched[::-1],  # для графика — хронологический порядок
-        },
-    )
+    ctx = base_ctx(request)
+    ctx.update({
+        "material": material,
+        "supplier_name": supplier.name if supplier else "?",
+        "history": enriched,
+        "chart_points": enriched[::-1],
+    })
+    return templates.TemplateResponse("history.html", ctx)
 
 
 @app.get("/duplicates", response_class=HTMLResponse)
 async def duplicates(request: Request):
-    """
-    Показывает позиции, которые ВЫГЛЯДЯТ как один и тот же материал
-    у одного поставщика, но записаны чуть по-разному (регистр, пробелы) —
-    и поэтому не схлопнулись в одну запись при дедупликации в боте.
-    """
     if not require_login(request):
         return RedirectResponse("/login", status_code=302)
 
@@ -193,7 +194,6 @@ async def duplicates(request: Request):
 
     duplicate_groups = [g for g in groups.values() if len(g) > 1]
 
-    return templates.TemplateResponse(
-        "duplicates.html",
-        {"request": request, "groups": duplicate_groups},
-    )
+    ctx = base_ctx(request)
+    ctx["groups"] = duplicate_groups
+    return templates.TemplateResponse("duplicates.html", ctx)

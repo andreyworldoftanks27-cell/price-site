@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ t.nav_duplicates }} — {{ t.site_title }}{% endblock %}
+{% block content %}
+
+<h1>{{ t.duplicates_title }}</h1>
+<p class="muted">{{ t.duplicates_desc }}</p>
+
+{% for group in groups %}
+<div class="dup-group">
+    <p class="dup-supplier">{{ t.supplier_prefix }}: {{ group[0].supplier }}</p>
+    <ul>
+        {% for item in group %}
+        <li>{{ item.name }} — {{ "%.2f"|format(item.price) }}</li>
+        {% endfor %}
+    </ul>
+</div>
+{% else %}
+<p class="muted">{{ t.duplicates_none }}</p>
+{% endfor %}
+
+{% endblock %}

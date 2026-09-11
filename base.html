@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}{{ t.site_title }}{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script>
+        (function () {
+            var saved = localStorage.getItem("theme") || "dark";
+            document.documentElement.setAttribute("data-theme", saved);
+        })();
+    </script>
+</head>
+<body>
+    <header class="topbar">
+        <a href="/" class="logo">{{ t.site_title }}</a>
+        <nav>
+            {% if request.session.get("logged_in") %}
+            <a href="/">{{ t.nav_catalog }}</a>
+            <a href="/duplicates">{{ t.nav_duplicates }}</a>
+            <a href="/logout">{{ t.nav_logout }}</a>
+            {% endif %}
+            <span class="lang-toggle">
+                <a href="/set-lang/uk?back={{ url_quote(request.url.path + ('?' + request.url.query if request.url.query else '')) }}" class="{% if lang == 'uk' %}active{% endif %}">UA</a>
+                <a href="/set-lang/ru?back={{ url_quote(request.url.path + ('?' + request.url.query if request.url.query else '')) }}" class="{% if lang == 'ru' %}active{% endif %}">RU</a>
+            </span>
+            <button class="theme-toggle" onclick="toggleTheme()" id="themeToggleBtn" type="button">
+                <span id="themeIcon">🌙</span> <span id="themeLabel">{{ t.theme_dark }}</span>
+            </button>
+        </nav>
+    </header>
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <script>
+        var THEME_LABELS = { dark: {{ t.theme_dark|tojson }}, light: {{ t.theme_light|tojson }} };
+        function applyThemeLabel(theme) {
+            document.getElementById("themeIcon").textContent = theme === "dark" ? "🌙" : "☀️";
+            document.getElementById("themeLabel").textContent = THEME_LABELS[theme];
+        }
+        function toggleTheme() {
+            var current = document.documentElement.getAttribute("data-theme") || "dark";
+            var next = current === "dark" ? "light" : "dark";
+            document.documentElement.setAttribute("data-theme", next);
+            localStorage.setItem("theme", next);
+            applyThemeLabel(next);
+        }
+        applyThemeLabel(document.documentElement.getAttribute("data-theme") || "dark");
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -42,6 +42,7 @@ class Material(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(500), index=True)
     unit: Mapped[str] = mapped_column(String(50), default="шт")
+    quantity: Mapped[float | None] = mapped_column(Numeric(14, 3), nullable=True)
 
     supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"))
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"))
