@@ -264,7 +264,7 @@ async def catalog(
                 })
             compare_groups.sort(key=lambda g: g["name"])
 
-        total_all = sum(counts_raw.values())
+    total_all = sum(counts_raw.values())
 
     materials = []
     for m, supplier_name, category_name, prev_price in rows:
@@ -292,7 +292,7 @@ async def catalog(
         for m in materials:
             grouped[m["category"]].append(m)
 
-       ctx = base_ctx(request)
+    ctx = base_ctx(request)
     ctx.update({
         "grouped": grouped,
         "category_order": [c for c in FIXED_CATEGORIES if c in grouped] + [c for c in grouped if c not in FIXED_CATEGORIES],
@@ -309,6 +309,7 @@ async def catalog(
         "total_all": total_all,
     })
     return templates.TemplateResponse("catalog.html", ctx)
+
 
 @app.get("/material/{material_id}/history", response_class=HTMLResponse)
 async def material_history(request: Request, material_id: int):
