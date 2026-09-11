@@ -34,17 +34,6 @@
     <a href="/" class="reset-link">{{ t.reset_link }}</a>
 </form>
 
-<div class="pill-row">
-    <button type="button" class="pill {% if not selected_category %}active{% endif %}" onclick='selectCategory("")'>
-        {{ t.category_all }} <span class="pill-count">{{ total_all }}</span>
-    </button>
-    {% for tab in category_tabs %}
-    <button type="button" class="pill {% if tab.name == selected_category %}active{% endif %}" onclick='selectCategory({{ tab.name|tojson }})'>
-        {{ tab.name }} <span class="pill-count">{{ tab.count }}</span>
-    </button>
-    {% endfor %}
-</div>
-
 <p class="muted" id="shownCounter">{{ t.shown_label.replace("{n}", total_shown|string) }}</p>
 
 {% macro material_table(items, show_category=False) %}
@@ -144,11 +133,6 @@
 
 {% block scripts %}
 <script>
-    function selectCategory(name) {
-        document.getElementById("categoryInput").value = name;
-        document.getElementById("filterForm").submit();
-    }
-
     (function () {
         var input = document.getElementById("searchInput");
         var rows = Array.prototype.slice.call(document.querySelectorAll(".material-row.clickable-row"));
