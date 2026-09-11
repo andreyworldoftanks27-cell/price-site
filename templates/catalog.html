@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}{{ t.nav_catalog }} — {{ t.site_title }}{% endblock %}
+{% block content %}
+
+<form method="get" class="filters" id="filterForm">
+    <input type="text" name="q" id="searchInput" placeholder="{{ t.search_placeholder }}" value="{{ query }}" autocomplete="off">
+
+    <input type="text" name="category" list="categoryList" placeholder="{{ t.category_placeholder }}" value="{{ selected_category }}" autocomplete="off">
+    <datalist id="categoryList">
+        {% for c in categories %}<option value="{{ c }}">{% endfor %}
+    </datalist>
+
+    <input type="text" name="supplier" list="supplierList" placeholder="{{ t.supplier_placeholder }}" value="{{ selected_supplier }}" autocomplete="off">
+    <datalist id="supplierList">
+        {% for s in suppliers %}<option value="{{ s }}">{% endfor %}
+    </datalist>
+
+    <button type="submit">{{ t.filter_button }}</button>
+    <a href="/" class="reset-link">{{ t.reset_link }}</a>
+</form>
+
+<p class="muted" id="shownCounter">{{ t.shown_label.replace("{n}", total_shown|string) }}</p>
+
+<div class="table-wrap">
+<table class="data-table" id="dataTable">
+    <thead>
+        <tr>
+            <th>{{ t.th_material }}</th>
+            <th>{{ t.th_category }}</th>
+            <th>{{ t.th_supplier }}</th>
+            <th style="text-align:right">{{ t.th_price }}</th>
+            <th>{{ t.th_unit }}</th>
+            <th style="text-align:right">{{ t.th_quantity }}</th>
+            <th>{{ t.th_price_date }}</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for m in materials %}
+        <tr class="clickable-row" data-search="{{ m.name|lower }}" onclick="location.href='/material/{{ m.id }}/history'">
+            <td class="material-name">{{ m.name }}</td>
+            <td><span class="category-tag">{{ m.category }}</span></td>
+            <td>{{ m.supplier }}</td>
+            <td class="price-cell">{{ "%.2f"|format(m.price) }}</td>
+            <td class="muted">{{ m.unit }}</td>
+            <td class="price-cell muted">{{ "%.2f"|format(m.quantity) if m.quantity is not none else "—" }}</td>
+            <td class="muted">{{ m.price_date }}</td>
+            <td class="row-arrow">→</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="muted">{{ t.not_found }}</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    (function () {
+        var input = document.getElementById("searchInput");
+        var rows = Array.prototype.slice.call(document.querySelectorAll("#dataTable tbody tr.clickable-row"));
+        var counter = document.getElementById("shownCounter");
+        var totalLabel = {{ t.shown_label|tojson }};
+
+        function highlight(cell, query) {
+            var original = cell.dataset.original || cell.textContent;
+            cell.dataset.original = original;
+            if (!query) { cell.innerHTML = original; return; }
+            var idx = original.toLowerCase().indexOf(query);
+            if (idx === -1) { cell.innerHTML = original; return; }
+            cell.innerHTML = original.slice(0, idx) + "<mark>" + original.slice(idx, idx + query.length) + "</mark>" + original.slice(idx + query.length);
+        }
+
+        input.addEventListener("input", function () {
+            var query = input.value.trim().toLowerCase();
+            var visible = 0;
+            rows.forEach(function (row) {
+                var match = !query || row.dataset.search.indexOf(query) !== -1;
+                row.style.display = match ? "" : "none";
+                if (match) visible++;
+                var nameCell = row.querySelector(".material-name");
+                if (nameCell) highlight(nameCell, query);
+            });
+            if (counter) counter.textContent = totalLabel.replace("{n}", visible);
+        });
+    })();
+</script>
+{% endblock %}
