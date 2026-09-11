@@ -1,17 +1,17 @@
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 :root {
-    --bg: #14171c;
-    --surface: #1b1f26;
-    --surface-hover: #21262f;
-    --border: #2a2f3a;
-    --text: #eef0f3;
-    --text-muted: #8b93a1;
+    --bg: #191919;
+    --surface: #212121;
+    --surface-hover: #282828;
+    --border: #333333;
+    --text: #ededed;
+    --text-muted: #969696;
     --accent: #e08a3c;
     --accent-text: #1a1206;
     --price-up: #f0665e;
     --price-down: #4fb571;
-    --price-flat: #8b93a1;
+    --price-flat: #969696;
     --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
@@ -88,6 +88,26 @@ body {
     font-weight: 600;
 }
 .theme-toggle:hover { color: var(--text); border-color: var(--accent); }
+
+.lang-toggle { display: inline-flex; gap: 2px; background: var(--bg); border: 1px solid var(--border); border-radius: 20px; padding: 3px; }
+.lang-toggle a {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 16px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 12.5px;
+    font-weight: 700;
+}
+.lang-toggle a.active { background: var(--accent); color: var(--accent-text); }
+.lang-toggle a:not(.active):hover { color: var(--text); }
+
+mark {
+    background: var(--accent);
+    color: var(--accent-text);
+    border-radius: 3px;
+    padding: 0 2px;
+}
 
 .container { padding: 28px 32px; max-width: 1140px; margin: 0 auto; }
 
