@@ -160,29 +160,17 @@ mark {
 .category-section-name { font-weight: 800; font-size: 15px; }
 .category-section-count { color: var(--text-muted); font-size: 13px; }
 
-.material-list { display: flex; flex-direction: column; }
-.material-row {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 13px 6px;
-    border-bottom: 1px solid var(--border);
-    cursor: pointer;
-    transition: background 0.1s ease;
-}
-.material-row:hover { background: var(--surface-hover); }
-.material-row:last-child { border-bottom: none; }
+/* Каталог теперь — настоящая таблица (см. .data-table ниже), а не карточки:
+   у каждой колонки есть подпись в шапке, и цена/остаток стоят строго под
+   своими заголовками, как в Excel. */
+.catalog-table td.material-name { font-weight: 600; font-size: 14.5px; white-space: normal; }
+.catalog-table th, .catalog-table td { white-space: nowrap; }
+.catalog-table td.material-name { white-space: normal; min-width: 220px; }
+.catalog-table td.muted { white-space: nowrap; }
 
-.material-main { flex: 1; min-width: 0; }
-.material-name { font-weight: 600; font-size: 14.5px; }
-.material-meta { font-size: 12.5px; margin-top: 2px; }
-
-.material-side { text-align: right; white-space: nowrap; }
 .material-price { font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 15px; }
 .material-unit { font-family: 'Manrope', sans-serif; font-weight: 500; font-size: 11.5px; color: var(--text-muted); }
 .material-trend { font-family: 'IBM Plex Mono', monospace; font-size: 12px; margin-top: 2px; }
-
-.row-arrow { color: var(--text-muted); flex-shrink: 0; }
 
 /* ---------- Filters ---------- */
 .filters {
@@ -278,6 +266,7 @@ mark {
 .data-table tbody tr.clickable-row:hover { background: var(--surface-hover); }
 
 .price-cell { text-align: right; font-weight: 600; white-space: nowrap; }
+.data-table th.num, .data-table td.num { text-align: right; font-family: 'IBM Plex Mono', monospace; }
 .category-tag {
     display: inline-block;
     padding: 3px 9px;
@@ -313,4 +302,70 @@ mark {
     border-radius: 8px;
     border: none;
     background: var(--accent);
-    color:
+    color: var(--accent-text);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 700;
+    font-family: inherit;
+}
+.error { color: var(--price-up); font-size: 13px; }
+
+/* ---------- Duplicates ---------- */
+.dup-group {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 12px;
+}
+.dup-supplier { color: var(--text-muted); font-size: 13px; margin: 0 0 8px; font-weight: 600; }
+.dup-group ul { margin: 0; padding-left: 20px; }
+.dup-group li { padding: 3px 0; }
+
+/* ---------- History page ---------- */
+.back-link { color: var(--text-muted); text-decoration: none; font-size: 13px; font-weight: 600; }
+.back-link:hover { color: var(--text); }
+
+.history-head { margin: 18px 0 24px; }
+.history-head h1 { margin: 6px 0 4px; font-size: 26px; letter-spacing: -0.01em; }
+
+.current-price-card {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 16px 0 28px;
+}
+.current-price-value { font-size: 34px; font-weight: 600; font-family: 'IBM Plex Mono', monospace; }
+.current-price-label { color: var(--text-muted); font-size: 13px; }
+
+/* Simple bar chart made of divs, no JS charting lib needed */
+.trend-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    height: 90px;
+    padding: 0 4px 4px;
+    margin-bottom: 26px;
+}
+.trend-bar {
+    flex: 1;
+    background: var(--accent);
+    border-radius: 3px 3px 0 0;
+    min-height: 4px;
+    opacity: 0.85;
+}
+.trend-bar:hover { opacity: 1; }
+
+.delta-up { color: var(--price-up); font-weight: 600; }
+.delta-down { color: var(--price-down); font-weight: 600; }
+.delta-flat { color: var(--price-flat); }
+
+@media (max-width: 720px) {
+    .container { padding: 18px; }
+    .topbar { padding: 14px 18px; }
+    .data-table th, .data-table td { padding: 10px; font-size: 13px; }
+}
