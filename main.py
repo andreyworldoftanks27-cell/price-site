@@ -7,7 +7,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 import config
 from database import get_session, init_db
@@ -20,6 +20,25 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["url_quote"] = quote
 templates.env.filters["tojson"] = lambda v: json.dumps(v, ensure_ascii=False)
+
+# Тот же фиксированный список категорий, что использует бот при классификации.
+# Держим его и здесь, чтобы рисовать вкладки-фильтры даже для категорий,
+# в которых пока 0 позиций (не только те, что реально есть в базе).
+FIXED_CATEGORIES = [
+    "Загальнобуд",
+    "Бетон та ЗБВ",
+    "Металопрокат",
+    "Сантехніка",
+    "Електрика",
+    "Оздоблення",
+    "Деревина та пиломатеріали",
+    "Покрівля та фасад",
+    "Утеплення та ізоляція",
+    "Двері, вікна, фурнітура",
+    "Інструмент та витратники",
+    "Спецодяг та безпека",
+    "Інше",
+]
 
 
 def get_lang(request: Request) -> str:
@@ -78,47 +97,89 @@ async def catalog(request: Request, category: str = "", supplier: str = "", q: s
         return RedirectResponse("/login", status_code=302)
 
     async with get_session() as session:
-        categories = (await session.execute(select(Category.name).order_by(Category.name))).scalars().all()
         suppliers = (await session.execute(select(Supplier.name).order_by(Supplier.name))).scalars().all()
 
+        # Подзапрос: цена ДО текущей (предыдущая запись в истории) — чтобы показать тренд.
+        prev_price_subq = (
+            select(PriceHistory.price)
+            .where(PriceHistory.material_id == Material.id)
+            .where(PriceHistory.price_date < Material.price_date)
+            .order_by(PriceHistory.price_date.desc())
+            .limit(1)
+            .correlate(Material)
+            .scalar_subquery()
+        )
+
         stmt = (
-            select(Material, Supplier.name.label("supplier_name"), Category.name.label("category_name"))
+            select(
+                Material,
+                Supplier.name.label("supplier_name"),
+                Category.name.label("category_name"),
+                prev_price_subq.label("prev_price"),
+            )
             .join(Supplier, Material.supplier_id == Supplier.id)
             .join(Category, Material.category_id == Category.id)
-            .order_by(Material.name)
+            .order_by(Category.name, Material.name)
         )
-        if category:
-            stmt = stmt.where(Category.name.ilike(f"%{category}%"))
         if supplier:
             stmt = stmt.where(Supplier.name.ilike(f"%{supplier}%"))
         if q:
             stmt = stmt.where(Material.name.ilike(f"%{q}%"))
 
-        rows = (await session.execute(stmt.limit(500))).all()
+        # Счётчик по категориям — учитывает текущие фильтры (поиск/поставщик),
+        # но НЕ саму категорию, чтобы можно было видеть, сколько позиций в каждой вкладке.
+        count_stmt = (
+            select(Category.name, func.count(Material.id))
+            .join(Material, Material.category_id == Category.id)
+            .join(Supplier, Material.supplier_id == Supplier.id)
+            .group_by(Category.name)
+        )
+        if supplier:
+            count_stmt = count_stmt.where(Supplier.name.ilike(f"%{supplier}%"))
+        if q:
+            count_stmt = count_stmt.where(Material.name.ilike(f"%{q}%"))
+        counts_raw = dict((await session.execute(count_stmt)).all())
 
-    materials = [
-        {
+        if category:
+            stmt = stmt.where(Category.name == category)
+
+        rows = (await session.execute(stmt.limit(1000))).all()
+
+    total_all = sum(counts_raw.values())
+    category_tabs = [{"name": c, "count": counts_raw.get(c, 0)} for c in FIXED_CATEGORIES]
+
+    materials = []
+    for m, supplier_name, category_name, prev_price in rows:
+        prev = float(prev_price) if prev_price is not None else None
+        cur = float(m.current_price)
+        materials.append({
             "id": m.id,
             "name": m.name,
-            "unit": m.unit,
+            "unit": m.unit or "шт",
             "quantity": m.quantity,
-            "price": m.current_price,
+            "price": cur,
+            "prev_price": prev,
             "price_date": m.price_date,
             "supplier": supplier_name,
             "category": category_name,
-        }
-        for m, supplier_name, category_name in rows
-    ]
+        })
+
+    # Группируем по категории для отображения секциями (как в референсе)
+    grouped = defaultdict(list)
+    for m in materials:
+        grouped[m["category"]].append(m)
 
     ctx = base_ctx(request)
     ctx.update({
-        "materials": materials,
-        "categories": categories,
+        "grouped": grouped,
+        "category_order": [c for c in FIXED_CATEGORIES if c in grouped],
+        "category_tabs": category_tabs,
         "suppliers": suppliers,
         "selected_category": category,
         "selected_supplier": supplier,
         "query": q,
         "total_shown": len(materials),
+        "total_all": total_all,
     })
     return templates.TemplateResponse("catalog.html", ctx)
 
@@ -134,6 +195,7 @@ async def material_history(request: Request, material_id: int):
             return HTMLResponse("Not found", status_code=404)
 
         supplier = await session.get(Supplier, material.supplier_id)
+        category = await session.get(Category, material.category_id)
 
         history_rows = (
             await session.execute(
@@ -168,6 +230,7 @@ async def material_history(request: Request, material_id: int):
     ctx.update({
         "material": material,
         "supplier_name": supplier.name if supplier else "?",
+        "category_name": category.name if category else "?",
         "history": enriched,
         "chart_points": enriched[::-1],
     })
