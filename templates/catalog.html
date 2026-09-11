@@ -164,7 +164,17 @@
             cell.innerHTML = original.slice(0, idx) + "<mark>" + original.slice(idx, idx + query.length) + "</mark>" + original.slice(idx + query.length);
         }
 
-        input.addEventListener("input", function () {
+        // Поиск по тексту — теперь ЦЕЛИКОМ на клиенте (сервер больше не
+        // фильтрует по "q", см. main.py). Раньше при нажатии Enter форма
+        // реально отправлялась на сервер, и если запрос не находил ни одной
+        // позиции, сервер рендерил страницу вообще БЕЗ строк товаров —
+        // после этого стереть текст в поле уже ничего не возвращало, потому
+        // что показывать было просто нечего (строк не было в DOM). Теперь
+        // сервер всегда отдаёт полный список (по категории/поставщику/
+        // сортировке), а фильтрация по тексту — это applyFilter() ниже,
+        // она вызывается и на каждую правку поля, и один раз сразу при
+        // загрузке страницы (на случай, если поле пришло уже заполненным).
+        function applyFilter() {
             var query = input.value.trim().toLowerCase();
             var visible = 0;
             rows.forEach(function (row) {
@@ -180,7 +190,10 @@
                     .some(function (r) { return r.style.display !== "none"; });
                 section.style.display = anyVisible ? "" : "none";
             });
-        });
+        }
+
+        input.addEventListener("input", applyFilter);
+        applyFilter();
     })();
 </script>
 {% endblock %}
