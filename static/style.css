@@ -148,10 +148,19 @@ mark {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
-    overflow: hidden;
+    /* Раньше был overflow:hidden — если таблица (5-6 колонок) не помещалась
+       на узком экране, содержимое не обрезалось, а весь браузер сжимал
+       ("зумил из") страницу целиком, чтобы всё влезло — из-за этого весь
+       сайт на телефоне выглядел мелким. Теперь скроллится только сама
+       таблица, горизонтально, внутри своего блока — остальная страница
+       (шапка, фильтры) не трогается и остаётся нормального размера. */
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
 }
 .data-table {
     width: 100%;
+    min-width: 560px;
     border-collapse: collapse;
     font-size: 14.5px;
 }
@@ -324,7 +333,20 @@ mark {
     .container { padding: 18px; }
     .topbar { padding: 14px 18px; gap: 8px; }
     .topbar nav { gap: 10px 14px; }
-    .data-table th, .data-table td { padding: 10px; font-size: 13px; }
+    /* Раньше здесь шрифт таблицы УМЕНЬШАЛСЯ (13px) — специально для мобильных
+       делаем крупнее, а не мельче; таблица теперь скроллится сама по себе
+       (см. .table-wrap), так что тесниться незачем. */
+    .data-table th, .data-table td { padding: 12px; font-size: 15px; }
+    .catalog-head h1 { font-size: 24px; }
+    /* input/select с font-size меньше 16px на iPhone при фокусе сами
+       заставляют Safari внезапно приближать страницу — 16px убирает этот
+       эффект и заодно крупнее и удобнее нажимать пальцем. */
+    .filters input, .filters select, .filters button {
+        font-size: 16px;
+        padding: 12px 14px;
+    }
+    .filters input { min-width: 0; width: 100%; }
+    .current-price-value { font-size: 28px; }
 }
 @media (max-width: 420px) {
     /* Совсем узкий экран — переключатели языка/темы иначе не помещаются
