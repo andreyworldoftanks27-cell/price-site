@@ -248,17 +248,40 @@ mark {
 .current-price-value { font-size: 34px; font-weight: 600; font-family: 'IBM Plex Mono', monospace; }
 .current-price-label { color: var(--text-muted); font-size: 13px; }
 
-/* Line chart, plain inline SVG (points computed server-side) — no JS charting lib needed */
-.trend-chart-wrap { margin-bottom: 26px; }
+/* Line chart, plain inline SVG (points computed server-side) — no JS charting lib needed.
+   Style matches the site's own dark/light theme (surface card, accent line) —
+   deliberately NOT a white Excel-style background. */
+.trend-chart-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 8px 4px;
+    margin-bottom: 10px;
+}
 .trend-svg {
     width: 100%;
-    height: 180px;
+    height: 260px;
     display: block;
     overflow: visible;
 }
+.trend-grid-line {
+    stroke: var(--border);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+}
+.trend-axis-line {
+    stroke: var(--text-muted);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+}
+.trend-grid-label, .trend-axis-label {
+    fill: var(--text-muted);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 15px;
+}
 .trend-area {
     fill: var(--accent);
-    fill-opacity: 0.14;
+    fill-opacity: 0.16;
     stroke: none;
 }
 .trend-line {
@@ -278,13 +301,10 @@ mark {
     transition: fill 0.1s ease;
 }
 .trend-dot:hover { fill: var(--accent); }
-.trend-axis {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-top: 6px;
+.trend-caption {
+    text-align: center;
+    font-size: 13px;
+    margin-bottom: 26px;
 }
 
 .delta-up { color: var(--price-up); font-weight: 600; }
