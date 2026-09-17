@@ -311,71 +311,44 @@ async def catalog(
     return templates.TemplateResponse("catalog.html", ctx)
 
 
-@app.get("/material/{material_id}/history", response_class=HTMLResponse)
-async def material_history(request: Request, material_id: int):
-    if not require_login(request):
-        return RedirectResponse("/login", status_code=302)
-
-    async with get_session() as session:
-        material = await session.get(Material, material_id)
-        if material is None:
-            return HTMLResponse("Not found", status_code=404)
-
-        supplier = await session.get(Supplier, material.supplier_id)
-        category = await session.get(Category, material.category_id)
-
-        history_rows = (
-            await session.execute(
-                select(PriceHistory)
-                .where(PriceHistory.material_id == material_id)
-                .order_by(PriceHistory.price_date.asc())
-            )
-        ).scalars().all()
-
-    prices = [float(h.price) for h in history_rows]
-    min_price = min(prices) if prices else 0
-    max_price = max(prices) if prices else 1
-    price_range = max_price - min_price or 1
-
-    enriched = []
-    prev_price = None
-    for h, p in zip(history_rows, prices):
-        if prev_price is None:
-            delta, delta_pct = None, None
-        else:
-            delta = p - prev_price
-            delta_pct = (delta / prev_price * 100) if prev_price else None
-        bar_height = 10 + int((p - min_price) / price_range * 90)
-        enriched.append({
-            "price_date": h.price_date, "price": p, "source_file": h.source_file,
-            "delta": delta, "delta_pct": delta_pct, "bar_height": bar_height,
-        })
-        prev_price = p
-    enriched.reverse()
-
-    ctx = base_ctx(request)
-    ctx.update({
-        "material": material,
-        "supplier_name": supplier.name if supplier else "?",
-        "category_name": category.name if category else "?",
-        "history": enriched,
-        "chart_points": enriched[::-1],
-    })
-    return templates.TemplateResponse("history.html", ctx)
-
-
-@app.get("/duplicates", response_class=HTMLResponse)
-async def duplicates(request: Request):
-    if not require_login(request):
-        return RedirectResponse("/login", status_code=302)
-
-    async with get_session() as session:
-        rows = (
-            await session.execute(
-                select(Material, Supplier.name.label("supplier_name"))
-                .join(Supplier, Material.supplier_id == Supplier.id)
-            )
-        ).all()
+/* Line chart, plain inline SVG (points computed server-side) — no JS charting lib needed */
+.trend-chart-wrap { margin-bottom: 26px; }
+.trend-svg {
+    width: 100%;
+    height: 180px;
+    display: block;
+    overflow: visible;
+}
+.trend-area {
+    fill: var(--accent);
+    fill-opacity: 0.14;
+    stroke: none;
+}
+.trend-line {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 3;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+}
+.trend-dot {
+    fill: var(--surface);
+    stroke: var(--accent);
+    stroke-width: 2.5;
+    vector-effect: non-scaling-stroke;
+    cursor: pointer;
+    transition: fill 0.1s ease;
+}
+.trend-dot:hover { fill: var(--accent); }
+.trend-axis {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 6px;
+}
 
     groups: dict[tuple[int, str], list] = defaultdict(list)
     for m, supplier_name in rows:
