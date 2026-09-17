@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}{{ material.name }} — {{ t.site_title }}{% endblock %}
+{% block content %}
+
+<a href="/" class="back-link" onclick="return goBackToCatalog(event)">{{ t.back_to_catalog }}</a>
+
+<div class="history-head">
+    <span class="category-tag">{{ supplier_name }}</span>
+    <h1>{{ material.name }}</h1>
+    <span class="muted">{{ t.unit_label }}: {{ material.unit }}{% if material.quantity is not none %} · {{ t.quantity_label }}: {{ "%.2f"|format(material.quantity) }}{% endif %}</span>
+</div>
+
+<div class="current-price-card">
+    <div>
+        <div class="current-price-label">{{ t.current_price_label }}</div>
+        <div class="current-price-value">{{ "%.2f"|format(material.current_price) }}</div>
+    </div>
+    <div class="muted">{{ t.on_date }} {{ material.price_date }}</div>
+</div>
+
+{% if chart_points|length > 1 %}
+<div class="trend-chart-wrap">
+    <svg viewBox="0 0 {{ chart_width }} {{ chart_height }}" preserveAspectRatio="none" class="trend-svg">
+        {% for g in grid_lines %}
+        <line x1="{{ chart_plot_left }}" y1="{{ g.y }}" x2="{{ chart_plot_right }}" y2="{{ g.y }}" class="trend-grid-line"></line>
+        <text x="{{ chart_plot_left - 10 }}" y="{{ g.y }}" class="trend-grid-label" text-anchor="end" dominant-baseline="middle">{{ g.label }}</text>
+        {% endfor %}
+        <line x1="{{ chart_plot_left }}" y1="{{ chart_baseline_y }}" x2="{{ chart_plot_right }}" y2="{{ chart_baseline_y }}" class="trend-axis-line"></line>
+
+        <polyline points="{{ area_attr }}" class="trend-area"></polyline>
+        <polyline points="{{ points_attr }}" class="trend-line"></polyline>
+        {% for point in chart_points %}
+        <circle cx="{{ point.svg_x }}" cy="{{ point.svg_y }}" r="6" class="trend-dot">
+            <title>{{ point.price_date }}: {{ "%.2f"|format(point.price) }}</title>
+        </circle>
+        {% endfor %}
+
+        {% for lbl in x_labels %}
+        <line x1="{{ lbl.x }}" y1="{{ chart_baseline_y }}" x2="{{ lbl.x }}" y2="{{ chart_baseline_y + 6 }}" class="trend-grid-line"></line>
+        <text x="{{ lbl.x }}" y="{{ chart_baseline_y + 16 }}" class="trend-axis-label" text-anchor="end" transform="rotate(-40 {{ lbl.x }} {{ chart_baseline_y + 16 }})">{{ lbl.text }}</text>
+        {% endfor %}
+    </svg>
+</div>
+<div class="trend-caption muted">{{ t.th_price }}: {{ "%.2f"|format(chart_min_price) }} – {{ "%.2f"|format(chart_max_price) }}</div>
+{% endif %}
+
+<div class="table-wrap">
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>{{ t.th_date }}</th>
+            <th>{{ t.th_valid_until }}</th>
+            <th style="text-align:right">{{ t.th_price }}</th>
+            <th style="text-align:right">{{ t.th_change }}</th>
+            <th>{{ t.th_source }}</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for h in history %}
+        <tr>
+            <td>{{ h.price_date }}</td>
+            <td class="muted">{{ h.changed_on if h.changed_on else t.still_current }}</td>
+            <td class="price-cell">{{ "%.2f"|format(h.price) }}</td>
+            <td class="price-cell">
+                {% if h.delta is none %}
+                <span class="delta-flat">—</span>
+                {% elif h.delta > 0 %}
+                <span class="delta-up">▲ {{ "%.2f"|format(h.delta) }} ({{ "%.1f"|format(h.delta_pct) }}%)</span>
+                {% elif h.delta < 0 %}
+                <span class="delta-down">▼ {{ "%.2f"|format(h.delta|abs) }} ({{ "%.1f"|format(h.delta_pct|abs) }}%)</span>
+                {% else %}
+                <span class="delta-flat">{{ t.no_change }}</span>
+                {% endif %}
+            </td>
+            <td class="muted">{{ h.source_file or "—" }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="muted">{{ t.no_history }}</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // "Назад в каталог" раньше всегда грузил каталог заново с нуля (пустой
+    // поиск, сброшенные фильтры, прокрутка вверх) — потому что это была
+    // обычная ссылка на "/". Если мы попали на эту страницу С каталога того
+    // же сайта, надёжнее и быстрее вернуть браузер именно НАЗАД (history.back()):
+    // он восстановит ту самую страницу каталога как она была — с уже введённым
+    // поиском, выбранными фильтрами и прокруткой — без нового запроса к серверу.
+    // Если истории нет (открыли ссылку на историю напрямую, в новой вкладке
+    // и т.п.) — просто переходим на "/" как раньше.
+    function goBackToCatalog(event) {
+        var cameFromThisSite = document.referrer && document.referrer.indexOf(window.location.origin) === 0;
+        if (cameFromThisSite && window.history.length > 1) {
+            event.preventDefault();
+            window.history.back();
+            return false;
+        }
+        return true;
+    }
+</script>
+{% endblock %}
