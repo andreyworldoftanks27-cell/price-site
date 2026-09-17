@@ -1,6 +1,9 @@
 from collections import defaultdict
 from urllib.parse import quote
+import hashlib
 import json
+import math
+import os
 
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import RedirectResponse, HTMLResponse
@@ -20,6 +23,27 @@ app.add_middleware(SessionMiddleware, secret_key=config.SECRET_KEY)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["url_quote"] = quote
+
+
+def _compute_css_version() -> str:
+    """
+    Короткий хеш содержимого style.css, добавляемый в ссылку как ?v=...
+    Раньше при каждом обновлении style.css браузер мог показывать
+    закэшированную СТАРУЮ версию файла (тот самый "график залился чёрным" —
+    просто новых CSS-правил для него ещё не было в кэше браузера). Так как
+    хеш меняется при любом изменении файла, ссылка на файл каждый раз новая,
+    и браузер гарантированно подгружает свежий CSS после деплоя — без
+    необходимости вручную чистить кэш (Ctrl+F5).
+    """
+    try:
+        path = os.path.join(os.path.dirname(__file__), "static", "style.css")
+        with open(path, "rb") as f:
+            return hashlib.md5(f.read()).hexdigest()[:8]
+    except OSError:
+        return "1"
+
+
+CSS_VERSION = _compute_css_version()
 
 
 def _tojson(value) -> Markup:
@@ -98,7 +122,7 @@ def get_lang(request: Request) -> str:
 
 def base_ctx(request: Request) -> dict:
     lang = get_lang(request)
-    return {"request": request, "lang": lang, "t": get_translations(lang)}
+    return {"request": request, "lang": lang, "t": get_translations(lang), "css_version": CSS_VERSION}
 
 
 def require_login(request: Request):
@@ -358,24 +382,50 @@ async def material_history(request: Request, material_id: int):
         prev_price = p
 
     # Точки графика — в хронологическом порядке (старые слева, новые справа).
-    # Координаты SVG-ломаной считаем один раз здесь, на сервере: простой
-    # line-chart без внешних JS-библиотек графиков.
+    # Координаты SVG-ломаной, сетки и подписей осей считаем один раз здесь,
+    # на сервере: обычный line-chart в духе Excel/Google Sheets, без внешних
+    # JS-библиотек графиков — только разметка + CSS в цветах сайта.
     chart_points = list(enriched)
-    chart_width, chart_height = 1000, 300
-    pad_top, pad_bottom = 20, 30
+    chart_width, chart_height = 1000, 380
+    pad_left, pad_right = 68, 20
+    pad_top, pad_bottom = 20, 64
+    plot_width = chart_width - pad_left - pad_right
     plot_height = chart_height - pad_top - pad_bottom
     chart_min_price = min(prices) if prices else 0
     chart_max_price = max(prices) if prices else 0
     price_range = (chart_max_price - chart_min_price) or 1
     n = len(chart_points)
+
     for i, pt in enumerate(chart_points):
-        pt["svg_x"] = round(i / (n - 1) * chart_width, 1) if n > 1 else chart_width / 2
+        pt["svg_x"] = round(pad_left + (i / (n - 1) * plot_width if n > 1 else plot_width / 2), 1)
         pt["svg_y"] = round(pad_top + (1 - (pt["price"] - chart_min_price) / price_range) * plot_height, 1)
     points_attr = " ".join(f"{pt['svg_x']},{pt['svg_y']}" for pt in chart_points)
+    baseline_y = pad_top + plot_height
     area_attr = (
-        f"0,{chart_height - pad_bottom} {points_attr} {chart_width},{chart_height - pad_bottom}"
+        f"{pad_left},{baseline_y} {points_attr} {chart_width - pad_right},{baseline_y}"
         if points_attr else ""
     )
+
+    # Горизонтальные линии сетки с подписями цены слева (0%, 25%, 50%, 75%, 100%
+    # диапазона цены) — как в Excel/Google Sheets.
+    grid_lines = []
+    n_grid = 4
+    for k in range(n_grid + 1):
+        frac = k / n_grid
+        grid_lines.append({
+            "y": round(pad_top + (1 - frac) * plot_height, 1),
+            "label": f"{chart_min_price + frac * price_range:.2f}",
+        })
+
+    # Подписи дат под осью X. Если точек много — подписываем не каждую (иначе
+    # налезут друг на друга), а равномерно проредив, всегда оставляя первую
+    # и последнюю точку подписанными.
+    x_labels = []
+    if n > 0:
+        label_step = max(1, math.ceil(n / 8))
+        for i, pt in enumerate(chart_points):
+            if i % label_step == 0 or i == n - 1:
+                x_labels.append({"x": pt["svg_x"], "text": str(pt["price_date"])})
 
     enriched.reverse()  # для таблицы — новые записи сверху
 
@@ -388,10 +438,15 @@ async def material_history(request: Request, material_id: int):
         "chart_points": chart_points,
         "chart_width": chart_width,
         "chart_height": chart_height,
+        "chart_plot_left": pad_left,
+        "chart_plot_right": chart_width - pad_right,
+        "chart_baseline_y": baseline_y,
         "chart_min_price": chart_min_price,
         "chart_max_price": chart_max_price,
         "points_attr": points_attr,
         "area_attr": area_attr,
+        "grid_lines": grid_lines,
+        "x_labels": x_labels,
     })
     return templates.TemplateResponse("history.html", ctx)
 
