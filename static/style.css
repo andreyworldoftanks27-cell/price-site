@@ -111,67 +111,6 @@ mark {
 
 .container { padding: 28px 32px; max-width: 1140px; margin: 0 auto; }
 
-.catalog-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; }
-.catalog-head h1 { font-size: 24px; margin: 0; letter-spacing: -0.01em; }
-
-/* ---------- Category pills ---------- */
-.pill-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin: 4px 0 18px;
-}
-.pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 14px;
-    border-radius: 20px;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text);
-    font-family: inherit;
-    font-size: 13.5px;
-    font-weight: 600;
-    cursor: pointer;
-}
-.pill:hover { border-color: var(--accent); }
-.pill.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-.pill-count {
-    font-size: 11.5px;
-    font-weight: 700;
-    opacity: 0.75;
-    background: rgba(128,128,128,0.18);
-    border-radius: 10px;
-    padding: 1px 6px;
-}
-.pill.active .pill-count { background: rgba(0,0,0,0.15); }
-
-/* ---------- Category sections ---------- */
-.category-section { margin-bottom: 30px; }
-.category-section-head {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    padding-bottom: 8px;
-    margin-bottom: 4px;
-    border-bottom: 2px solid var(--border);
-}
-.category-section-name { font-weight: 800; font-size: 15px; }
-.category-section-count { color: var(--text-muted); font-size: 13px; }
-
-/* Каталог теперь — настоящая таблица (см. .data-table ниже), а не карточки:
-   у каждой колонки есть подпись в шапке, и цена/остаток стоят строго под
-   своими заголовками, как в Excel. */
-.catalog-table td.material-name { font-weight: 600; font-size: 14.5px; white-space: normal; }
-.catalog-table th, .catalog-table td { white-space: nowrap; }
-.catalog-table td.material-name { white-space: normal; min-width: 220px; }
-.catalog-table td.muted { white-space: nowrap; }
-
-.material-price { font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 15px; }
-.material-unit { font-family: 'Manrope', sans-serif; font-weight: 500; font-size: 11.5px; color: var(--text-muted); }
-.material-trend { font-family: 'IBM Plex Mono', monospace; font-size: 12px; margin-top: 2px; }
-
 /* ---------- Filters ---------- */
 .filters {
     display: flex;
@@ -189,9 +128,6 @@ mark {
     font-size: 14px;
 }
 .filters input { min-width: 220px; }
-.filters select {
-    cursor: pointer;
-}
 .filters button {
     background: var(--accent);
     color: var(--accent-text);
@@ -201,35 +137,6 @@ mark {
 }
 .reset-link { color: var(--text-muted); align-self: center; font-size: 13px; text-decoration: none; }
 .reset-link:hover { color: var(--text); }
-
-.compare-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0 4px;
-    color: var(--text-muted);
-    font-size: 13.5px;
-    font-weight: 600;
-    cursor: pointer;
-    user-select: none;
-}
-.compare-toggle input { cursor: pointer; }
-
-.compare-desc { margin: -8px 0 16px; }
-.compare-group .material-row.compare-best { background: color-mix(in srgb, var(--price-down) 10%, transparent); }
-.compare-badge {
-    display: inline-block;
-    margin-left: 8px;
-    padding: 1px 8px;
-    border-radius: 10px;
-    background: var(--price-down);
-    color: var(--accent-text);
-    font-size: 10.5px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    vertical-align: middle;
-}
 
 .muted { color: var(--text-muted); font-size: 13px; }
 
@@ -266,7 +173,6 @@ mark {
 .data-table tbody tr.clickable-row:hover { background: var(--surface-hover); }
 
 .price-cell { text-align: right; font-weight: 600; white-space: nowrap; }
-.data-table th.num, .data-table td.num { text-align: right; font-family: 'IBM Plex Mono', monospace; }
 .category-tag {
     display: inline-block;
     padding: 3px 9px;
@@ -342,23 +248,44 @@ mark {
 .current-price-value { font-size: 34px; font-weight: 600; font-family: 'IBM Plex Mono', monospace; }
 .current-price-label { color: var(--text-muted); font-size: 13px; }
 
-/* Simple bar chart made of divs, no JS charting lib needed */
-.trend-chart {
+/* Line chart, plain inline SVG (points computed server-side) — no JS charting lib needed */
+.trend-chart-wrap { margin-bottom: 26px; }
+.trend-svg {
+    width: 100%;
+    height: 180px;
+    display: block;
+    overflow: visible;
+}
+.trend-area {
+    fill: var(--accent);
+    fill-opacity: 0.14;
+    stroke: none;
+}
+.trend-line {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 3;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+}
+.trend-dot {
+    fill: var(--surface);
+    stroke: var(--accent);
+    stroke-width: 2.5;
+    vector-effect: non-scaling-stroke;
+    cursor: pointer;
+    transition: fill 0.1s ease;
+}
+.trend-dot:hover { fill: var(--accent); }
+.trend-axis {
     display: flex;
-    align-items: flex-end;
-    gap: 6px;
-    height: 90px;
-    padding: 0 4px 4px;
-    margin-bottom: 26px;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 6px;
 }
-.trend-bar {
-    flex: 1;
-    background: var(--accent);
-    border-radius: 3px 3px 0 0;
-    min-height: 4px;
-    opacity: 0.85;
-}
-.trend-bar:hover { opacity: 1; }
 
 .delta-up { color: var(--price-up); font-weight: 600; }
 .delta-down { color: var(--price-down); font-weight: 600; }
