@@ -53,7 +53,7 @@
         {% for m in items %}
         <tr class="material-row clickable-row" data-search="{{ m.name|lower }}" onclick="location.href='/material/{{ m.id }}/history'">
             <td class="material-name">{{ m.name }}</td>
-            {% if show_category %}<td class="muted">{{ m.category }}</td>{% endif %}
+            {% if show_category %}<td class="muted">{{ m.category|cat(lang) }}</td>{% endif %}
             <td class="muted">{{ m.supplier }}</td>
             <td class="muted">{{ m.price_date }}</td>
             <td class="num">{% if m.quantity is not none %}{{ "%.2f"|format(m.quantity) }}{% else %}—{% endif %}</td>
@@ -97,7 +97,7 @@
                         {{ m.supplier }}
                         {% if loop.first %}<span class="compare-badge">{{ t.compare_cheapest }}</span>{% endif %}
                     </td>
-                    <td class="muted">{{ m.category }}</td>
+                    <td class="muted">{{ m.category|cat(lang) }}</td>
                     <td class="num">{% if m.quantity is not none %}{{ "%.2f"|format(m.quantity) }}{% else %}—{% endif %}</td>
                     <td class="num price-cell">{{ "%.2f"|format(m.price) }} <span class="material-unit">{{ t.uah_per }}{{ m.unit }}</span></td>
                 </tr>
@@ -119,7 +119,7 @@
     {% for cat_name in category_order %}
     <section class="category-section">
         <div class="category-section-head">
-            <span class="category-section-name">{{ cat_name }}</span>
+            <span class="category-section-name">{{ cat_name|cat(lang) }}</span>
             <span class="category-section-count">{{ grouped[cat_name]|length }}</span>
         </div>
         {{ material_table(grouped[cat_name]) }}
