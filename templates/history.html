@@ -21,6 +21,12 @@
 {% if chart_points|length > 1 %}
 <div class="trend-chart-wrap">
     <svg viewBox="0 0 {{ chart_width }} {{ chart_height }}" preserveAspectRatio="none" class="trend-svg">
+        {% for g in grid_lines %}
+        <line x1="{{ chart_plot_left }}" y1="{{ g.y }}" x2="{{ chart_plot_right }}" y2="{{ g.y }}" class="trend-grid-line"></line>
+        <text x="{{ chart_plot_left - 10 }}" y="{{ g.y }}" class="trend-grid-label" text-anchor="end" dominant-baseline="middle">{{ g.label }}</text>
+        {% endfor %}
+        <line x1="{{ chart_plot_left }}" y1="{{ chart_baseline_y }}" x2="{{ chart_plot_right }}" y2="{{ chart_baseline_y }}" class="trend-axis-line"></line>
+
         <polyline points="{{ area_attr }}" class="trend-area"></polyline>
         <polyline points="{{ points_attr }}" class="trend-line"></polyline>
         {% for point in chart_points %}
@@ -28,13 +34,14 @@
             <title>{{ point.price_date }}: {{ "%.2f"|format(point.price) }}</title>
         </circle>
         {% endfor %}
+
+        {% for lbl in x_labels %}
+        <line x1="{{ lbl.x }}" y1="{{ chart_baseline_y }}" x2="{{ lbl.x }}" y2="{{ chart_baseline_y + 6 }}" class="trend-grid-line"></line>
+        <text x="{{ lbl.x }}" y="{{ chart_baseline_y + 16 }}" class="trend-axis-label" text-anchor="end" transform="rotate(-40 {{ lbl.x }} {{ chart_baseline_y + 16 }})">{{ lbl.text }}</text>
+        {% endfor %}
     </svg>
-    <div class="trend-axis">
-        <span>{{ chart_points[0].price_date }}</span>
-        <span class="muted">{{ t.th_price }}: {{ "%.2f"|format(chart_min_price) }} – {{ "%.2f"|format(chart_max_price) }}</span>
-        <span>{{ chart_points[-1].price_date }}</span>
-    </div>
 </div>
+<div class="trend-caption muted">{{ t.th_price }}: {{ "%.2f"|format(chart_min_price) }} – {{ "%.2f"|format(chart_max_price) }}</div>
 {% endif %}
 
 <div class="table-wrap">
