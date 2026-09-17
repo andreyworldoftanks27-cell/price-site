@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}{{ material.name }} — {{ t.site_title }}{% endblock %}
+{% block content %}
+
+<a href="/" class="back-link">{{ t.back_to_catalog }}</a>
+
+<div class="history-head">
+    <span class="category-tag">{{ supplier_name }}</span>
+    <h1>{{ material.name }}</h1>
+    <span class="muted">{{ t.unit_label }}: {{ material.unit }}{% if material.quantity is not none %} · {{ t.quantity_label }}: {{ "%.2f"|format(material.quantity) }}{% endif %}</span>
+</div>
+
+<div class="current-price-card">
+    <div>
+        <div class="current-price-label">{{ t.current_price_label }}</div>
+        <div class="current-price-value">{{ "%.2f"|format(material.current_price) }}</div>
+    </div>
+    <div class="muted">{{ t.on_date }} {{ material.price_date }}</div>
+</div>
+
+{% if chart_points|length > 1 %}
+<div class="trend-chart-wrap">
+    <svg viewBox="0 0 {{ chart_width }} {{ chart_height }}" preserveAspectRatio="none" class="trend-svg">
+        <polyline points="{{ area_attr }}" class="trend-area"></polyline>
+        <polyline points="{{ points_attr }}" class="trend-line"></polyline>
+        {% for point in chart_points %}
+        <circle cx="{{ point.svg_x }}" cy="{{ point.svg_y }}" r="6" class="trend-dot">
+            <title>{{ point.price_date }}: {{ "%.2f"|format(point.price) }}</title>
+        </circle>
+        {% endfor %}
+    </svg>
+    <div class="trend-axis">
+        <span>{{ chart_points[0].price_date }}</span>
+        <span class="muted">{{ t.th_price }}: {{ "%.2f"|format(chart_min_price) }} – {{ "%.2f"|format(chart_max_price) }}</span>
+        <span>{{ chart_points[-1].price_date }}</span>
+    </div>
+</div>
+{% endif %}
+
+<div class="table-wrap">
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>{{ t.th_date }}</th>
+            <th>{{ t.th_valid_until }}</th>
+            <th style="text-align:right">{{ t.th_price }}</th>
+            <th style="text-align:right">{{ t.th_change }}</th>
+            <th>{{ t.th_source }}</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for h in history %}
+        <tr>
+            <td>{{ h.price_date }}</td>
+            <td class="muted">{{ h.changed_on if h.changed_on else t.still_current }}</td>
+            <td class="price-cell">{{ "%.2f"|format(h.price) }}</td>
+            <td class="price-cell">
+                {% if h.delta is none %}
+                <span class="delta-flat">—</span>
+                {% elif h.delta > 0 %}
+                <span class="delta-up">▲ {{ "%.2f"|format(h.delta) }} ({{ "%.1f"|format(h.delta_pct) }}%)</span>
+                {% elif h.delta < 0 %}
+                <span class="delta-down">▼ {{ "%.2f"|format(h.delta|abs) }} ({{ "%.1f"|format(h.delta_pct|abs) }}%)</span>
+                {% else %}
+                <span class="delta-flat">{{ t.no_change }}</span>
+                {% endif %}
+            </td>
+            <td class="muted">{{ h.source_file or "—" }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="muted">{{ t.no_history }}</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+
+{% endblock %}
