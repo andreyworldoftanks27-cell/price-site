@@ -246,6 +246,7 @@ mark {
 
 .history-head { margin: 18px 0 24px; }
 .history-head h1 { margin: 6px 0 4px; font-size: 26px; letter-spacing: -0.01em; }
+.full-name-line { margin: 8px 0 0; }
 
 .current-price-card {
     display: flex;
