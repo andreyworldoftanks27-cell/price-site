@@ -1,13 +1,16 @@
 {% extends "base.html" %}
-{% block title %}{{ material.name }} — {{ t.site_title }}{% endblock %}
+{% block title %}{{ material.name|matname(lang) }} — {{ t.site_title }}{% endblock %}
 {% block content %}
 
 <a href="/" class="back-link" onclick="return goBackToCatalog(event)">{{ t.back_to_catalog }}</a>
 
 <div class="history-head">
     <span class="category-tag">{{ supplier_name }}</span>
-    <h1>{{ material.name }}</h1>
+    <h1>{{ material.name|matname(lang) }}</h1>
     <span class="muted">{{ t.unit_label }}: {{ material.unit }}{% if material.quantity is not none %} · {{ t.quantity_label }}: {{ "%.2f"|format(material.quantity) }}{% endif %}</span>
+    {% if full_name and full_name != material.name %}
+    <p class="muted full-name-line">{{ t.full_name_label }}: {{ full_name|matname(lang) }}</p>
+    {% endif %}
 </div>
 
 <div class="current-price-card">

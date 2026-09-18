@@ -52,7 +52,7 @@
     <tbody>
         {% for m in items %}
         <tr class="material-row clickable-row" data-search="{{ m.name|lower }}" onclick="location.href='/material/{{ m.id }}/history'">
-            <td class="material-name">{{ m.name }}</td>
+            <td class="material-name">{{ m.name|matname(lang) }}</td>
             {% if show_category %}<td class="muted">{{ m.category|cat(lang) }}</td>{% endif %}
             <td class="muted">{{ m.supplier }}</td>
             <td class="muted">{{ m.price_date }}</td>
@@ -77,7 +77,7 @@
     {% for group in compare_groups %}
     <section class="category-section compare-group">
         <div class="category-section-head">
-            <span class="category-section-name">{{ group.name }}</span>
+            <span class="category-section-name">{{ group.name|matname(lang) }}</span>
             <span class="category-section-count">{{ group.supplier_count }} {{ t.compare_suppliers_count }}</span>
         </div>
         <div class="table-wrap">
