@@ -2,7 +2,6 @@ from collections import defaultdict
 from urllib.parse import quote
 import hashlib
 import json
-import math
 import os
 import re
 
@@ -536,7 +535,13 @@ async def material_history(request: Request, material_id: int):
     chart_points = list(enriched)
     chart_width, chart_height = 1000, 380
     pad_left, pad_right = 68, 20
-    pad_top, pad_bottom = 20, 64
+    # pad_bottom раньше был 64 — под подписи дат под осью X, повёрнутые
+    # наискосок. При большом числе точек (сотни записей истории) они всё
+    # равно налезали друг на друга и выглядели неряшливо, поэтому дату теперь
+    # показываем только при наведении на точку (см. <title> у .trend-dot в
+    # history.html) — постоянных подписей под осью больше нет, и весь
+    # освободившийся отступ снизу отдаём самому графику.
+    pad_top, pad_bottom = 20, 20
     plot_width = chart_width - pad_left - pad_right
     plot_height = chart_height - pad_top - pad_bottom
     chart_min_price = min(prices) if prices else 0
@@ -565,16 +570,6 @@ async def material_history(request: Request, material_id: int):
             "label": f"{chart_min_price + frac * price_range:.2f}",
         })
 
-    # Подписи дат под осью X. Если точек много — подписываем не каждую (иначе
-    # налезут друг на друга), а равномерно проредив, всегда оставляя первую
-    # и последнюю точку подписанными.
-    x_labels = []
-    if n > 0:
-        label_step = max(1, math.ceil(n / 8))
-        for i, pt in enumerate(chart_points):
-            if i % label_step == 0 or i == n - 1:
-                x_labels.append({"x": pt["svg_x"], "text": str(pt["price_date"])})
-
     enriched.reverse()  # для таблицы — новые записи сверху
 
     full_name = expand_material_name(material.name)
@@ -597,7 +592,6 @@ async def material_history(request: Request, material_id: int):
         "points_attr": points_attr,
         "area_attr": area_attr,
         "grid_lines": grid_lines,
-        "x_labels": x_labels,
     })
     return templates.TemplateResponse("history.html", ctx)
 
