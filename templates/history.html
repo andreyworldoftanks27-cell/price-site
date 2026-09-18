@@ -37,11 +37,6 @@
             <title>{{ point.price_date }}: {{ "%.2f"|format(point.price) }}</title>
         </circle>
         {% endfor %}
-
-        {% for lbl in x_labels %}
-        <line x1="{{ lbl.x }}" y1="{{ chart_baseline_y }}" x2="{{ lbl.x }}" y2="{{ chart_baseline_y + 6 }}" class="trend-grid-line"></line>
-        <text x="{{ lbl.x }}" y="{{ chart_baseline_y + 16 }}" class="trend-axis-label" text-anchor="end" transform="rotate(-40 {{ lbl.x }} {{ chart_baseline_y + 16 }})">{{ lbl.text }}</text>
-        {% endfor %}
     </svg>
 </div>
 <div class="trend-caption muted">{{ t.th_price }}: {{ "%.2f"|format(chart_min_price) }} – {{ "%.2f"|format(chart_max_price) }}</div>
