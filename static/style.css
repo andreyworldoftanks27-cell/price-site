@@ -226,6 +226,33 @@ mark {
     font-weight: 700;
     cursor: pointer;
 }
+
+/* Чекбокс "Порівняти ціни" раніше не мав жодного власного стилю — це був
+   голий 13px-квадратик браузера сам по собі, без рамки/фону, тому поруч
+   з високими прямокутними полями пошуку/сортування він виглядав як
+   випадкова цятка не на своєму місці. Тепер це така сама "коробка", як у
+   інших фільтрів (рамка, фон, заокруглення, та сама висота через padding),
+   а сам чекбокс усередині — помітно більший і пофарбований в акцент. */
+.compare-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 15px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.compare-toggle input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
 .reset-link { color: var(--text-muted); align-self: center; font-size: 13px; text-decoration: none; }
 .reset-link:hover { color: var(--text); }
 
@@ -265,6 +292,12 @@ mark {
     letter-spacing: 0.04em;
     background: var(--surface);
 }
+/* Заголовок "Ціна"/"Фасування" стояв зліва, а самі числа під ним —
+   праворуч (через .price-cell/.num text-align:right) — тому цифри
+   виглядали так, ніби "з'їхали" від свого заголовка через півтаблиці,
+   особливо тепер, коли таблиця стала ширшою. Вирівнюємо заголовок
+   так само праворуч, щоб він стояв точно над своїми значеннями. */
+.data-table th.num { text-align: right; }
 .data-table tbody tr:last-child td { border-bottom: none; }
 .data-table tbody tr.clickable-row {
     cursor: pointer;
