@@ -396,6 +396,32 @@ mark {
 .current-price-value { font-size: 34px; font-weight: 600; font-family: 'IBM Plex Mono', monospace; }
 .current-price-label { color: var(--text-muted); font-size: 13px; }
 
+/* Прості посилання-переходи на пошук цього товару на зовнішніх сайтах
+   (Prom.ua, Google Shopping) — не порівняння цін всередині сайту, а
+   просто швидкий перехід, тому оформлюємо як маленькі бордеровані
+   "чіпи", схожі на category-pill, а не як основну кнопку. */
+.compare-external {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 0 0 28px;
+}
+.compare-external-label { color: var(--text-muted); font-size: 13.5px; }
+.compare-external-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 7px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    text-decoration: none;
+    font-size: 13.5px;
+    font-weight: 600;
+    transition: background 0.1s ease, border-color 0.1s ease;
+}
+.compare-external-link:hover { background: var(--surface-hover); border-color: var(--accent); }
+
 /* Line chart, plain inline SVG (points computed server-side) — no JS charting lib needed.
    Style matches the site's own dark/light theme (surface card, accent line) —
    deliberately NOT a white Excel-style background. */
