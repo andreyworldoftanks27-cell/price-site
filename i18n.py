@@ -1,6 +1,11 @@
 TRANSLATIONS = {
     "uk": {
         "site_title": "Реєстр цін",
+        "catalog_page_h1": "Каталог матеріалів",
+        "stat_materials_label": "Матеріалів",
+        "stat_suppliers_label": "Постачальників",
+        "stat_categories_label": "Категорій",
+        "stat_updated_today_label": "Оновлено сьогодні",
         "nav_catalog": "Каталог",
         "nav_duplicates": "Дублікати",
         "nav_logout": "Вийти",
@@ -59,6 +64,11 @@ TRANSLATIONS = {
     },
     "ru": {
         "site_title": "Реестр цен",
+        "catalog_page_h1": "Каталог материалов",
+        "stat_materials_label": "Материалов",
+        "stat_suppliers_label": "Поставщиков",
+        "stat_categories_label": "Категорий",
+        "stat_updated_today_label": "Обновлено сегодня",
         "nav_catalog": "Каталог",
         "nav_duplicates": "Дубликаты",
         "nav_logout": "Выйти",
