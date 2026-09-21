@@ -70,7 +70,7 @@
     </thead>
     <tbody>
         {% for m in items %}
-        <tr class="material-row clickable-row" data-search="{{ m.name|lower }}" onclick="location.href='/material/{{ m.id }}/history'">
+        <tr class="material-row clickable-row" data-search="{{ (m.name ~ ' ' ~ m.category ~ ' ' ~ (m.category|cat('ru')))|lower }}" onclick="location.href='/material/{{ m.id }}/history'">
             <td class="material-name"><span class="name-text">{{ m.name|matname(lang) }}</span></td>
             {% if show_category %}<td><span class="category-pill">{{ m.category|cat(lang) }}</span></td>{% endif %}
             <td class="muted"><span class="supplier-avatar">{{ m.supplier[0]|upper }}</span>{{ m.supplier }}</td>
@@ -111,7 +111,7 @@
             </thead>
             <tbody>
                 {% for m in group.offers %}
-                <tr class="material-row clickable-row {% if loop.first %}compare-best{% endif %}" data-search="{{ m.name|lower }}" onclick="location.href='/material/{{ m.id }}/history'">
+                <tr class="material-row clickable-row {% if loop.first %}compare-best{% endif %}" data-search="{{ (m.name ~ ' ' ~ m.category ~ ' ' ~ (m.category|cat('ru')))|lower }}" onclick="location.href='/material/{{ m.id }}/history'">
                     <td class="material-name">
                         <span class="supplier-avatar">{{ m.supplier[0]|upper }}</span><span class="name-text">{{ m.supplier }}</span>
                         {% if loop.first %}<span class="compare-badge">{{ t.compare_cheapest }}</span>{% endif %}
@@ -186,6 +186,13 @@
         // сортировке), а фильтрация по тексту — это applyFilter() ниже,
         // она вызывается и на каждую правку поля, и один раз сразу при
         // загрузке страницы (на случай, если поле пришло уже заполненным).
+        //
+        // data-search теперь содержит не только назву товару, а ще й назву
+        // категорії — одразу двома мовами (укр. як є в базі + рос. переклад
+        // через |cat('ru')) — щоб пошук за темою ("облицювання поверхонь" /
+        // "облицовка поверхностей") знаходив усі товари цієї категорії й
+        // піднімав саму секцію нагору, незалежно від того, якою мовою
+        // зараз показується сайт.
         function applyFilter() {
             var query = input.value.trim().toLowerCase();
             var visible = 0;
