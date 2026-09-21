@@ -1,17 +1,21 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
+/* Тёмна тема — монохромний акцент (чорно-білі-сірі тони замість помаранчевого):
+   активні стани тепер світло-сірий/білий чіп на тексті майже чорного кольору,
+   а не колір бренду. Єдині кольори, що лишаються "яскравими" навмисно — це
+   зміна ціни (--price-up/--price-down): це сигнал, який має впадати в очі. */
 :root {
-    --bg: #191919;
-    --surface: #212121;
-    --surface-hover: #282828;
-    --border: #333333;
-    --text: #ededed;
-    --text-muted: #969696;
-    --accent: #e08a3c;
-    --accent-text: #1a1206;
+    --bg: #0e0e0e;
+    --surface: #131313;
+    --surface-hover: #1b1b1b;
+    --border: #747474;
+    --text: #dcdcde;
+    --text-muted: #98989c;
+    --accent: #e2e2e5;
+    --accent-text: #141414;
     --price-up: #f0665e;
     --price-down: #4fb571;
-    --price-flat: #969696;
+    --price-flat: #98989c;
     --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
@@ -22,7 +26,7 @@ html[data-theme="light"] {
     --border: #ddd6c7;
     --text: #211d16;
     --text-muted: #756e60;
-    --accent: #b5570f;
+    --accent: #211d16;
     --accent-text: #fff7ee;
     --price-up: #c53c33;
     --price-down: #1f7a44;
@@ -44,58 +48,90 @@ body {
     font-family: 'IBM Plex Mono', 'Consolas', monospace;
 }
 
-/* ---------- Top bar ---------- */
-.topbar {
+/* ---------- App shell: sidebar + main area ---------- */
+/* Раніше це була верхня панель на всю ширину (topbar). Тепер — бокове
+   меню зліва (як в панелі керування), фіксованої ширини на десктопі,
+   і воно ж перетворюється в компактну верхню смугу на вузьких екранах
+   (див. медіа-запит нижче) — окремого мобільного варіанта верстки не
+   робимо, лишається один HTML, просто інша розкладка через flex. */
+.app-shell {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    row-gap: 10px;
-    padding: 18px 32px;
+    align-items: stretch;
+    min-height: 100vh;
+}
+.sidebar {
+    width: 240px;
+    flex-shrink: 0;
     background: var(--surface);
-    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    padding: 26px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    height: 100vh;
+    overflow-y: auto;
+}
+.main-area {
+    flex: 1;
+    min-width: 0;
 }
 .logo {
     color: var(--text);
-    font-weight: 800;
+    font-family: 'Space Grotesk', 'Manrope', sans-serif;
+    font-weight: 700;
     text-decoration: none;
-    font-size: 18px;
+    font-size: 19px;
     letter-spacing: -0.01em;
 }
-.topbar nav {
+.sidebar-nav {
     display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 16px 22px;
+    flex-direction: column;
+    gap: 4px;
 }
-.topbar nav a {
+.sidebar-nav a {
     color: var(--text-muted);
     text-decoration: none;
     font-size: 14px;
     font-weight: 600;
+    padding: 10px 12px;
+    border-radius: 8px;
 }
-.topbar nav a:hover { color: var(--text); }
+.sidebar-nav a:hover { color: var(--text); }
+.sidebar-nav a.active { background: var(--bg); color: var(--text); }
+.sidebar-bottom {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
 
 .theme-toggle {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
+    width: 100%;
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 20px;
-    padding: 6px 12px;
+    padding: 7px 12px;
     cursor: pointer;
     color: var(--text-muted);
     font-family: inherit;
     font-size: 13px;
     font-weight: 600;
 }
-.theme-toggle:hover { color: var(--text); border-color: var(--accent); }
+.theme-toggle:hover { color: var(--text); border-color: var(--text-muted); }
 
-.lang-toggle { display: inline-flex; gap: 2px; background: var(--bg); border: 1px solid var(--border); border-radius: 20px; padding: 3px; }
+.lang-toggle { display: flex; gap: 2px; background: var(--bg); border: 1px solid var(--border); border-radius: 20px; padding: 3px; }
 .lang-toggle a {
+    flex: 1;
+    text-align: center;
     display: inline-block;
-    padding: 4px 10px;
+    padding: 6px 10px;
     border-radius: 16px;
     color: var(--text-muted);
     text-decoration: none;
@@ -104,6 +140,54 @@ body {
 }
 .lang-toggle a.active { background: var(--accent); color: var(--accent-text); }
 .lang-toggle a:not(.active):hover { color: var(--text); }
+
+/* ---------- Stat strip (короткі агрегати над фільтрами каталогу) ---------- */
+.stat-strip {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 20px;
+}
+.stat-tile {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+}
+.stat-label { color: var(--text-muted); font-size: 12px; margin-bottom: 6px; }
+.stat-value { font-family: 'Space Grotesk', 'Manrope', sans-serif; font-size: 22px; font-weight: 600; }
+
+/* ---------- Category pill / supplier avatar ---------- */
+/* Свідомо ОДИН нейтральний стиль на всі категорії (а не колір на кожну) —
+   категорій у реєстрі 17, розфарбувати кожну окремим відтінком і лишитись
+   монохромним неможливо; бейдж відрізняє категорію від решти тексту в рядку,
+   а не кодує ЇЇ колір. */
+.category-pill {
+    display: inline-block;
+    padding: 3px 11px;
+    border-radius: 20px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.supplier-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 700;
+    margin-right: 8px;
+    vertical-align: middle;
+}
 
 mark {
     background: var(--accent);
@@ -184,7 +268,13 @@ mark {
 }
 .data-table tbody tr.clickable-row:hover { background: var(--surface-hover); }
 
-.price-cell { text-align: right; font-weight: 600; white-space: nowrap; }
+/* .data-table td { text-align: left } весит чуть больше по правилам CSS-
+   специфичности (класс + тег против одного класса), поэтому раньше на
+   странице истории цена всё равно прижималась влево, несмотря на
+   text-align:right ниже. На каталоге это было незаметно (цена с "грн/шт"
+   почти во всю ширину ячейки), а в таблице истории — заметно. Указываем
+   и тег таблицы явно, чтобы это правило точно побеждало. */
+.data-table td.price-cell, .price-cell { text-align: right; font-weight: 600; white-space: nowrap; }
 .category-tag {
     display: inline-block;
     padding: 3px 9px;
@@ -331,9 +421,28 @@ mark {
 .delta-flat { color: var(--price-flat); }
 
 @media (max-width: 720px) {
+    /* Вузький екран: бокове меню стає компактною верхньою смугою (флекс-рядок
+       замість колонки) — це той самий HTML, що на десктопі, просто інша
+       розкладка, без окремого шаблону. */
+    .app-shell { flex-direction: column; min-height: 0; }
+    .sidebar {
+        width: 100%;
+        height: auto;
+        position: static;
+        flex-direction: row;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px 16px;
+        padding: 14px 18px;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+    }
+    .sidebar-nav { flex-direction: row; gap: 4px; }
+    .sidebar-bottom { margin-top: 0; margin-left: auto; flex-direction: row; }
+    .lang-toggle, .theme-toggle { width: auto; }
     .container { padding: 18px; }
-    .topbar { padding: 14px 18px; gap: 8px; }
-    .topbar nav { gap: 10px 14px; }
+    .stat-strip { flex-wrap: wrap; }
+    .stat-tile { min-width: 45%; }
     /* Раньше здесь шрифт таблицы УМЕНЬШАЛСЯ (13px) — специально для мобильных
        делаем крупнее, а не мельче; таблица теперь скроллится сама по себе
        (см. .table-wrap), так что тесниться незачем. */
@@ -352,7 +461,9 @@ mark {
 @media (max-width: 420px) {
     /* Совсем узкий экран — переключатели языка/темы иначе не помещаются
        в одну строку с пунктами меню. */
-    .topbar nav { font-size: 13px; gap: 8px 10px; }
+    .sidebar { font-size: 13px; gap: 8px 10px; }
+    .sidebar-nav a { padding: 6px 8px; }
     .theme-toggle { padding: 5px 9px; font-size: 12px; }
     .lang-toggle a { padding: 3px 8px; font-size: 12px; }
+    .stat-tile { min-width: 100%; }
 }
