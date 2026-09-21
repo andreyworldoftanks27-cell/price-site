@@ -21,6 +21,18 @@
     <div class="muted">{{ t.on_date }} {{ material.price_date }}</div>
 </div>
 
+<!-- Простые ссылки-переходы на пошук цього ж товару на популярних
+     майданчиках — без парсингу/автоматичного порівняння цін (це б
+     вимагало зіставлення назв товарів між сайтами і регулярного обходу
+     чужих каталогів — крихко і не потрібно для першої версії). Просто
+     відкриваємо готовий пошук за назвою товару в новій вкладці, як
+     звичайне посилання, яке натискає сама людина. -->
+<div class="compare-external">
+    <span class="compare-external-label">{{ t.compare_external_label }}</span>
+    <a class="compare-external-link" href="https://prom.ua/search?search_term={{ url_quote(full_name) }}" target="_blank" rel="noopener noreferrer">Prom.ua ↗</a>
+    <a class="compare-external-link" href="https://www.google.com/search?tbm=shop&q={{ url_quote(full_name ~ ' купити') }}" target="_blank" rel="noopener noreferrer">Google Shopping ↗</a>
+</div>
+
 {% if chart_points|length > 1 %}
 <div class="trend-chart-wrap">
     <svg viewBox="0 0 {{ chart_width }} {{ chart_height }}" preserveAspectRatio="none" class="trend-svg">
