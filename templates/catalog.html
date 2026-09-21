@@ -3,8 +3,27 @@
 {% block content %}
 
 <div class="catalog-head">
-    <h1>{{ t.site_title }}</h1>
+    <h1>{{ t.catalog_page_h1 }}</h1>
     <span class="muted">{{ total_all }} {{ t.total_materials_label }}</span>
+</div>
+
+<div class="stat-strip">
+    <div class="stat-tile">
+        <div class="stat-label">{{ t.stat_materials_label }}</div>
+        <div class="stat-value">{{ total_all }}</div>
+    </div>
+    <div class="stat-tile">
+        <div class="stat-label">{{ t.stat_suppliers_label }}</div>
+        <div class="stat-value">{{ total_suppliers }}</div>
+    </div>
+    <div class="stat-tile">
+        <div class="stat-label">{{ t.stat_categories_label }}</div>
+        <div class="stat-value">{{ total_categories }}</div>
+    </div>
+    <div class="stat-tile">
+        <div class="stat-label">{{ t.stat_updated_today_label }}</div>
+        <div class="stat-value">{{ updated_today }}</div>
+    </div>
 </div>
 
 <form method="get" class="filters" id="filterForm">
@@ -52,9 +71,9 @@
     <tbody>
         {% for m in items %}
         <tr class="material-row clickable-row" data-search="{{ m.name|lower }}" onclick="location.href='/material/{{ m.id }}/history'">
-            <td class="material-name">{{ m.name|matname(lang) }}</td>
-            {% if show_category %}<td class="muted">{{ m.category|cat(lang) }}</td>{% endif %}
-            <td class="muted">{{ m.supplier }}</td>
+            <td class="material-name"><span class="name-text">{{ m.name|matname(lang) }}</span></td>
+            {% if show_category %}<td><span class="category-pill">{{ m.category|cat(lang) }}</span></td>{% endif %}
+            <td class="muted"><span class="supplier-avatar">{{ m.supplier[0]|upper }}</span>{{ m.supplier }}</td>
             <td class="muted">{{ m.price_date }}</td>
             <td class="num">{% if m.quantity is not none %}{{ "%.2f"|format(m.quantity) }}{% else %}—{% endif %}</td>
             <td class="num price-cell">
@@ -94,10 +113,10 @@
                 {% for m in group.offers %}
                 <tr class="material-row clickable-row {% if loop.first %}compare-best{% endif %}" data-search="{{ m.name|lower }}" onclick="location.href='/material/{{ m.id }}/history'">
                     <td class="material-name">
-                        {{ m.supplier }}
+                        <span class="supplier-avatar">{{ m.supplier[0]|upper }}</span><span class="name-text">{{ m.supplier }}</span>
                         {% if loop.first %}<span class="compare-badge">{{ t.compare_cheapest }}</span>{% endif %}
                     </td>
-                    <td class="muted">{{ m.category|cat(lang) }}</td>
+                    <td><span class="category-pill">{{ m.category|cat(lang) }}</span></td>
                     <td class="num">{% if m.quantity is not none %}{{ "%.2f"|format(m.quantity) }}{% else %}—{% endif %}</td>
                     <td class="num price-cell">{{ "%.2f"|format(m.price) }} <span class="material-unit">{{ t.uah_per }}{{ m.unit }}</span></td>
                 </tr>
@@ -139,6 +158,15 @@
         var counter = document.getElementById("shownCounter");
         var totalLabel = {{ t.shown_label|tojson }};
 
+        // highlight()/applyFilter() перезаписывают innerHTML найденной ячейки —
+        // раньше это была ЦЕЛАЯ ".material-name" td, а в ней теперь, кроме
+        // самого названия, может лежать значок постачальника или бейдж
+        // "найкраща ціна" (режим порівняння цін). textContent из td со
+        // вложенными span'ами схлопывал их в один текст и НАВСЕГДА терял
+        // разметку значка/бейджа уже при самой первой загрузке страницы
+        // (applyFilter вызывается сразу, даже с пустым полем пошуку). Теперь
+        // подсвечиваем только вложенный ".name-text" — сам значок и бейдж
+        // остаются его соседями и не трогаются.
         function highlight(cell, query) {
             var original = cell.dataset.original || cell.textContent;
             cell.dataset.original = original;
@@ -165,7 +193,7 @@
                 var match = !query || row.dataset.search.indexOf(query) !== -1;
                 row.style.display = match ? "" : "none";
                 if (match) visible++;
-                var nameCell = row.querySelector(".material-name");
+                var nameCell = row.querySelector(".name-text");
                 if (nameCell) highlight(nameCell, query);
             });
             if (counter) counter.textContent = totalLabel.replace("{n}", visible);

@@ -13,26 +13,32 @@
     </script>
 </head>
 <body>
-    <header class="topbar">
-        <a href="/" class="logo">{{ t.site_title }}</a>
-        <nav>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <a href="/" class="logo">{{ t.site_title }}</a>
             {% if request.session.get("logged_in") %}
-            <a href="/">{{ t.nav_catalog }}</a>
-            <a href="/duplicates">{{ t.nav_duplicates }}</a>
-            <a href="/logout">{{ t.nav_logout }}</a>
+            <nav class="sidebar-nav">
+                <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">{{ t.nav_catalog }}</a>
+                <a href="/duplicates" class="{% if request.url.path == '/duplicates' %}active{% endif %}">{{ t.nav_duplicates }}</a>
+                <a href="/logout">{{ t.nav_logout }}</a>
+            </nav>
             {% endif %}
-            <span class="lang-toggle">
-                <a href="/set-lang/uk?back={{ url_quote(request.url.path + ('?' + request.url.query if request.url.query else '')) }}" class="{% if lang == 'uk' %}active{% endif %}">UA</a>
-                <a href="/set-lang/ru?back={{ url_quote(request.url.path + ('?' + request.url.query if request.url.query else '')) }}" class="{% if lang == 'ru' %}active{% endif %}">RU</a>
-            </span>
-            <button class="theme-toggle" onclick="toggleTheme()" id="themeToggleBtn" type="button">
-                <span id="themeIcon">🌙</span> <span id="themeLabel">{{ t.theme_dark }}</span>
-            </button>
-        </nav>
-    </header>
-    <main class="container">
-        {% block content %}{% endblock %}
-    </main>
+            <div class="sidebar-bottom">
+                <span class="lang-toggle">
+                    <a href="/set-lang/uk?back={{ url_quote(request.url.path + ('?' + request.url.query if request.url.query else '')) }}" class="{% if lang == 'uk' %}active{% endif %}">UA</a>
+                    <a href="/set-lang/ru?back={{ url_quote(request.url.path + ('?' + request.url.query if request.url.query else '')) }}" class="{% if lang == 'ru' %}active{% endif %}">RU</a>
+                </span>
+                <button class="theme-toggle" onclick="toggleTheme()" id="themeToggleBtn" type="button">
+                    <span id="themeIcon">🌙</span> <span id="themeLabel">{{ t.theme_dark }}</span>
+                </button>
+            </div>
+        </aside>
+        <div class="main-area">
+            <main class="container">
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
 
     <script>
         var THEME_LABELS = { dark: {{ t.theme_dark|tojson }}, light: {{ t.theme_light|tojson }} };
