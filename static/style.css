@@ -154,8 +154,8 @@ body {
     border-radius: 12px;
     padding: 14px 18px;
 }
-.stat-label { color: var(--text-muted); font-size: 12px; margin-bottom: 6px; }
-.stat-value { font-family: 'Space Grotesk', 'Manrope', sans-serif; font-size: 22px; font-weight: 600; }
+.stat-label { color: var(--text-muted); font-size: 12.5px; margin-bottom: 6px; }
+.stat-value { font-family: 'Space Grotesk', 'Manrope', sans-serif; font-size: 25px; font-weight: 600; }
 
 /* ---------- Category pill / supplier avatar ---------- */
 /* Свідомо ОДИН нейтральний стиль на всі категорії (а не колір на кожну) —
@@ -196,7 +196,11 @@ mark {
     padding: 0 2px;
 }
 
-.container { padding: 28px 40px; max-width: 1600px; margin: 0 auto; }
+/* Раньше було max-width: 1600px — на широких моніторах (1920px+) це
+   лишало обабіч зайву порожню смугу, а сама таблиця виглядала дрібно.
+   Тепер контент розтягується практично на всю ширину головної області
+   (лічені 100vw для .main-area мінус сайдбар), лишень з відступами. */
+.container { padding: 28px 48px; max-width: 2200px; margin: 0 auto; }
 
 /* ---------- Filters ---------- */
 .filters {
@@ -246,17 +250,17 @@ mark {
     width: 100%;
     min-width: 560px;
     border-collapse: collapse;
-    font-size: 15.5px;
+    font-size: 17px;
 }
 .data-table th, .data-table td {
     text-align: left;
-    padding: 14px 18px;
+    padding: 16px 22px;
     border-bottom: 1px solid var(--border);
 }
 .data-table th {
     color: var(--text-muted);
     font-weight: 700;
-    font-size: 12.5px;
+    font-size: 13.5px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     background: var(--surface);
