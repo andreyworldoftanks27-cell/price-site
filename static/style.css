@@ -226,6 +226,17 @@ mark {
     font-weight: 700;
     cursor: pointer;
 }
+/* Експорт — дія іншого роду, ніж "Фільтрувати" (не змінює те, що показано,
+   а вивантажує поточний вигляд у файл), тому навмисно не заливаємо її
+   акцентом, як основну кнопку — тільки рамка, щоб вона не перетягувала
+   на себе увагу першою. */
+.filters button.export-btn {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    font-weight: 600;
+}
+.filters button.export-btn:hover { background: var(--surface-hover); border-color: var(--accent); }
 
 /* Чекбокс "Порівняти ціни" раніше не мав жодного власного стилю — це був
    голий 13px-квадратик браузера сам по собі, без рамки/фону, тому поруч
@@ -421,6 +432,53 @@ mark {
     transition: background 0.1s ease, border-color 0.1s ease;
 }
 .compare-external-link:hover { background: var(--surface-hover); border-color: var(--accent); }
+
+/* Блок "нічого не знайдено у нас — ось живі ціни/посилання" на каталозі —
+   з'являється через JS (applyFilter() -> showExternalSearch()), коли
+   пошук не дав жодного рядка в НАШІЙ базі. externalLiveBlock всередині
+   показує кілька реальних цін з Епіцентру (якщо запит співпав з одним із
+   заданих напрямків), externalLinks (клас compare-external, вже є вище) —
+   завжди показує прості посилання на пошук на кількох сайтах. */
+.external-search {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    padding: 18px 22px;
+    margin: 0 0 24px;
+}
+.external-search-title { margin: 0 0 14px; font-size: 14px; color: var(--text-muted); }
+.external-live {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg);
+    padding: 12px 16px;
+    margin: 0 0 16px;
+}
+.external-live-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+.external-live-shop { font-weight: 700; font-size: 14.5px; }
+.external-live-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+}
+.external-live-item:last-of-type { border-bottom: none; }
+.external-live-price { font-weight: 700; font-family: 'IBM Plex Mono', monospace; white-space: nowrap; }
+.external-live-more {
+    display: inline-block;
+    margin-top: 10px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 13px;
+}
+.external-live-more:hover { color: var(--text); }
 
 /* Line chart, plain inline SVG (points computed server-side) — no JS charting lib needed.
    Style matches the site's own dark/light theme (surface card, accent line) —
