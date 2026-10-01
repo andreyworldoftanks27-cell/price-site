@@ -63,23 +63,6 @@
 
 <p class="muted" id="shownCounter">{{ t.shown_label.replace("{n}", total_shown|string) }}</p>
 
-<!-- Показується тільки якщо клієнтський пошук (applyFilter() нижче) не
-     знайшов ЖОДНОГО рядка в нашій базі — див. JS. "externalLiveBlock" —
-     кілька реальних цін з Епіцентру, якщо запит співпав з одним із наперед
-     заданих напрямків (EXTERNAL_LIVE_SOURCES у main.py); "externalLinks" —
-     прості посилання на кілька перевірених джерел, показуються завжди. -->
-<div class="external-search" id="externalSearchBlock" style="display:none">
-    <p class="external-search-title">{{ t.external_not_found }}</p>
-    <div class="external-live" id="externalLiveBlock" style="display:none">
-        <div class="external-live-head">
-            <span class="external-live-shop" id="externalLiveShop"></span>
-            <span class="muted">{{ t.external_live_note }}</span>
-        </div>
-        <div class="external-live-items" id="externalLiveItems"></div>
-    </div>
-    <div class="compare-external" id="externalLinks"></div>
-</div>
-
 {% macro material_table(items, show_category=False) %}
 <div class="table-wrap">
 <table class="data-table catalog-table">
@@ -173,6 +156,30 @@
     {% endfor %}
 {% endif %}
 
+<!-- Внизу списку, ПІСЛЯ самих матеріалів — показується клієнтським
+     пошуком (applyFilter() нижче) за будь-яким непустим запитом, НЕ лише
+     коли в нашій базі нічого не знайшлось. Раніше блок стояв НАД списком
+     і з'являвся тільки при 0 збігів — тепер користувач бачить "ще
+     варіанти в інших джерелах" і тоді, коли потрібний матеріал у нас
+     вже є, щоб можна було одразу порівняти ціну. Заголовок (яка саме
+     фраза — "нічого не знайдено" чи "ще варіанти") підміняється в JS
+     залежно від того, чи є локальні збіги (visible > 0).
+     "externalLiveBlock" — кілька реальних цін з Епіцентру, якщо запит
+     співпав з одним із наперед заданих напрямків (EXTERNAL_LIVE_SOURCES
+     у main.py); "externalLinks" — прості посилання на кілька перевірених
+     джерел, показуються завжди. -->
+<div class="external-search" id="externalSearchBlock" style="display:none">
+    <p class="external-search-title" id="externalSearchTitle">{{ t.external_not_found }}</p>
+    <div class="external-live" id="externalLiveBlock" style="display:none">
+        <div class="external-live-head">
+            <span class="external-live-shop" id="externalLiveShop"></span>
+            <span class="muted">{{ t.external_live_note }}</span>
+        </div>
+        <div class="external-live-items" id="externalLiveItems"></div>
+    </div>
+    <div class="compare-external" id="externalLinks"></div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -248,24 +255,32 @@
             showExternalSearch(query, visible);
         }
 
-        // Якщо у НАШІЙ базі по запиту взагалі нічого немає (visible === 0,
-        // запит не пустий) — питаємо сервер /live-search: він або поверне
-        // кілька реальних цін із Епіцентру (якщо запит співпав з одним із
-        // заздалегідь перевірених напрямків — див. EXTERNAL_LIVE_SOURCES у
-        // main.py), або просто список посилань для переходу. Дебаунс 500мс
-        // і кеш "останній показаний запит" — щоб НЕ смикати наш сервер (а
-        // він, в свою чергу, Епіцентр) на кожне натискання клавіші.
+        // Раніше цей блок питав /live-search ЛИШЕ коли в НАШІЙ базі по
+        // запиту взагалі нічого немає (visible === 0). Тепер показуємо
+        // його ВНИЗУ списку за будь-яким непустим запитом (2+ символи —
+        // щоб не смикати сервер/Епіцентр на кожну одну літеру), навіть
+        // якщо локальні збіги вже є: "нічого не знайдено" заміняється на
+        // "ще варіанти в інших джерелах", а самі зовнішні посилання/живі
+        // ціни показуються так само. Дебаунс 500мс і кеш "останній
+        // показаний запит" — щоб не дублювати запит при кожному
+        // натисканні клавіші.
         var externalBlock = document.getElementById("externalSearchBlock");
+        var externalTitle = document.getElementById("externalSearchTitle");
         var externalDebounceTimer = null;
         var lastExternalQuery = null;
         var EXTERNAL_MORE_LABEL = {{ t.external_view_all|tojson }};
+        var EXTERNAL_NOT_FOUND_TITLE = {{ t.external_not_found|tojson }};
+        var EXTERNAL_MORE_OPTIONS_TITLE = {{ t.external_more_options|tojson }};
 
         function showExternalSearch(query, visible) {
-            if (!query || visible > 0) {
+            if (!query || query.length < 2) {
                 externalBlock.style.display = "none";
                 return;
             }
             externalBlock.style.display = "";
+            if (externalTitle) {
+                externalTitle.textContent = visible > 0 ? EXTERNAL_MORE_OPTIONS_TITLE : EXTERNAL_NOT_FOUND_TITLE;
+            }
             if (query === lastExternalQuery) return;
             lastExternalQuery = query;
             clearTimeout(externalDebounceTimer);
