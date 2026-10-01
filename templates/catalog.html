@@ -50,10 +50,35 @@
     </label>
 
     <button type="submit">{{ t.filter_button }}</button>
+    <!-- formaction переопределяет адрес ТІЛЬКИ для цієї кнопки — форма
+         лишається тією ж самою (ті самі поля q/supplier/category/sort/
+         compare), просто при кліку саме на цю кнопку відправляється на
+         /export.xlsx замість "/". Значення "q" візьметься те, що зараз
+         реально введено в полі пошуку (навіть якщо форму ще жодного разу
+         не сабмітили) — бо браузер завжди надсилає поточний, живий вміст
+         полів форми, а не серверний value за замовчуванням. -->
+    <button type="submit" formaction="/export.xlsx" class="export-btn">{{ t.export_button }} ⬇</button>
     <a href="/" class="reset-link">{{ t.reset_link }}</a>
 </form>
 
 <p class="muted" id="shownCounter">{{ t.shown_label.replace("{n}", total_shown|string) }}</p>
+
+<!-- Показується тільки якщо клієнтський пошук (applyFilter() нижче) не
+     знайшов ЖОДНОГО рядка в нашій базі — див. JS. "externalLiveBlock" —
+     кілька реальних цін з Епіцентру, якщо запит співпав з одним із наперед
+     заданих напрямків (EXTERNAL_LIVE_SOURCES у main.py); "externalLinks" —
+     прості посилання на кілька перевірених джерел, показуються завжди. -->
+<div class="external-search" id="externalSearchBlock" style="display:none">
+    <p class="external-search-title">{{ t.external_not_found }}</p>
+    <div class="external-live" id="externalLiveBlock" style="display:none">
+        <div class="external-live-head">
+            <span class="external-live-shop" id="externalLiveShop"></span>
+            <span class="muted">{{ t.external_live_note }}</span>
+        </div>
+        <div class="external-live-items" id="externalLiveItems"></div>
+    </div>
+    <div class="compare-external" id="externalLinks"></div>
+</div>
 
 {% macro material_table(items, show_category=False) %}
 <div class="table-wrap">
@@ -208,6 +233,82 @@
                 var anyVisible = Array.prototype.slice.call(section.querySelectorAll(".material-row"))
                     .some(function (r) { return r.style.display !== "none"; });
                 section.style.display = anyVisible ? "" : "none";
+            });
+            showExternalSearch(query, visible);
+        }
+
+        // Якщо у НАШІЙ базі по запиту взагалі нічого немає (visible === 0,
+        // запит не пустий) — питаємо сервер /live-search: він або поверне
+        // кілька реальних цін із Епіцентру (якщо запит співпав з одним із
+        // заздалегідь перевірених напрямків — див. EXTERNAL_LIVE_SOURCES у
+        // main.py), або просто список посилань для переходу. Дебаунс 500мс
+        // і кеш "останній показаний запит" — щоб НЕ смикати наш сервер (а
+        // він, в свою чергу, Епіцентр) на кожне натискання клавіші.
+        var externalBlock = document.getElementById("externalSearchBlock");
+        var externalDebounceTimer = null;
+        var lastExternalQuery = null;
+        var EXTERNAL_MORE_LABEL = {{ t.external_view_all|tojson }};
+
+        function showExternalSearch(query, visible) {
+            if (!query || visible > 0) {
+                externalBlock.style.display = "none";
+                return;
+            }
+            externalBlock.style.display = "";
+            if (query === lastExternalQuery) return;
+            lastExternalQuery = query;
+            clearTimeout(externalDebounceTimer);
+            externalDebounceTimer = setTimeout(function () {
+                fetch("/live-search?q=" + encodeURIComponent(query))
+                    .then(function (r) { return r.json(); })
+                    .then(renderExternalResults)
+                    .catch(function () { /* тихо нічого не показуємо — лишаються тільки стандартні посилання відсутні, не critично */ });
+            }, 500);
+        }
+
+        function renderExternalResults(data) {
+            var liveBlock = document.getElementById("externalLiveBlock");
+            var liveItems = document.getElementById("externalLiveItems");
+            var liveShop = document.getElementById("externalLiveShop");
+            var linksBlock = document.getElementById("externalLinks");
+
+            liveItems.innerHTML = "";
+            linksBlock.innerHTML = "";
+
+            if (data.matched && data.items && data.items.length) {
+                liveShop.textContent = data.shop;
+                data.items.forEach(function (it) {
+                    var row = document.createElement("div");
+                    row.className = "external-live-item";
+                    var name = document.createElement("span");
+                    name.textContent = it.name;
+                    var price = document.createElement("span");
+                    price.className = "external-live-price";
+                    price.textContent = Number(it.price).toFixed(2) + " ₴";
+                    row.appendChild(name);
+                    row.appendChild(price);
+                    liveItems.appendChild(row);
+                });
+                var moreLink = document.createElement("a");
+                moreLink.href = data.shop_url;
+                moreLink.target = "_blank";
+                moreLink.rel = "noopener noreferrer";
+                moreLink.className = "external-live-more";
+                moreLink.textContent = EXTERNAL_MORE_LABEL + " ↗";
+                liveItems.appendChild(moreLink);
+                liveBlock.style.display = "";
+            } else {
+                liveBlock.style.display = "none";
+            }
+
+            (data.links || []).forEach(function (link) {
+                var a = document.createElement("a");
+                a.href = link.url;
+                a.target = "_blank";
+                a.rel = "noopener noreferrer";
+                a.className = "compare-external-link";
+                a.textContent = link.name + " ↗";
+                linksBlock.appendChild(a);
             });
         }
 
