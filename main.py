@@ -4,6 +4,7 @@ from io import BytesIO
 from urllib.parse import quote, urljoin
 import hashlib
 import json
+import logging
 import os
 import re
 import time
@@ -25,6 +26,8 @@ import config
 from database import get_session, init_db
 from models import Material, Supplier, Category, PriceHistory
 from i18n import get_translations, DEFAULT_LANG
+
+logger = logging.getLogger("price_site.live_search")
 
 app = FastAPI(title="Реєстр цін")
 app.add_middleware(SessionMiddleware, secret_key=config.SECRET_KEY)
@@ -327,16 +330,45 @@ async def fetch_live_prices(url: str, limit: int = 5) -> list[dict]:
     if cached and (time.time() - cached[0]) < _EXTERNAL_PRICE_CACHE_TTL:
         return cached[1]
 
-    try:
-        async with httpx.AsyncClient(
-            timeout=6.0,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; reestr-cin-bot/1.0; +price-site)"},
-            follow_redirects=True,
-        ) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            html = resp.text
-    except Exception:
+    # Заголовки, схожі на звичайний браузер — лише User-Agent (як було
+    # раніше) для деяких сайтів є ознакою бота сам по собі: немає
+    # Accept/Accept-Language/Referer, які завжди шле справжній браузер.
+    request_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "uk-UA,uk;q=0.9,ru;q=0.8,en;q=0.7",
+        "Referer": "https://epicentrk.ua/",
+    }
+
+    html = None
+    last_error = None
+    # Дві спроби з різним тайм-аутом: якщо сайт просто повільний (а не
+    # заблокував нас) — перша спроба з 6с таймаутом може не встигнути,
+    # друга з 15с майже напевно встигне. Якщо обидві падають — це вже
+    # скоріш за все не "повільно", а мережева блокування/помилка.
+    for attempt, timeout_s in enumerate((6.0, 15.0), start=1):
+        try:
+            async with httpx.AsyncClient(
+                timeout=timeout_s,
+                headers=request_headers,
+                follow_redirects=True,
+            ) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                html = resp.text
+            break
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    if html is None:
+        logger.warning(
+            "live-price fetch failed for %s after retries: %r", url, last_error
+        )
+        _EXTERNAL_PRICE_CACHE[url] = (time.time(), [])
         return []
 
     results = []
@@ -346,6 +378,15 @@ async def fetch_live_prices(url: str, limit: int = 5) -> list[dict]:
             tag.decompose()
 
         product_links = soup.find_all("a", href=_EPICENTR_PRODUCT_HREF_RE)
+        if not product_links:
+            # 200 OK, але жодного посилання на товар не знайдено — це
+            # або антибот-сторінка (капча/заглушка) замість каталогу,
+            # або сайт змінив розмітку. Лишаємо шматок відповіді в логах,
+            # щоб можна було подивитись у Railway logs, що саме прийшло.
+            logger.warning(
+                "live-price: 0 product links on %s (body %d bytes, starts: %r)",
+                url, len(html), html[:300],
+            )
         seen_urls = set()
         for link in product_links:
             href = link.get("href") or ""
@@ -406,7 +447,20 @@ async def fetch_live_prices(url: str, limit: int = 5) -> list[dict]:
             results.append({"name": name, "price": price, "url": product_url})
             if len(results) >= limit:
                 break
+
+        if product_links and not results:
+            # Посилання на товари є, а жодна картка не дала ні ціни, ні
+            # назви — найімовірніше, розмітку сторінки знову змінили і
+            # наші регулярки (_EPICENTR_PRICE_RE / card-root) більше не
+            # потрапляють у потрібні теги. Це вже сигнал щодо ПАРСИНГУ,
+            # а не мережі/блокування (бо посилання самі знайшлися).
+            logger.warning(
+                "live-price: found %d product links on %s but extracted 0 items "
+                "(price/name parsing likely out of date)",
+                len(product_links), url,
+            )
     except Exception:
+        logger.exception("live-price: unexpected parsing error for %s", url)
         results = []
 
     _EXTERNAL_PRICE_CACHE[url] = (time.time(), results)
