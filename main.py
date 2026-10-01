@@ -411,6 +411,7 @@ async def fetch_live_prices(url: str, limit: int = 5) -> list[dict]:
                 url, len(html), len(fallback_links), sample_hrefs,
             )
         seen_urls = set()
+        debug_first_card = None  # для логу, якщо знову 0 результатів
         for link in product_links:
             href = link.get("href") or ""
             if not href:
@@ -422,20 +423,37 @@ async def fetch_live_prices(url: str, limit: int = 5) -> list[dict]:
             card = _find_card_root(link, _EPICENTR_PRODUCT_HREF_RE)
             card_text = card.get_text("\n")
             card_lines = [ln.strip() for ln in card_text.split("\n") if ln.strip()]
+            # Число ціни і сам символ "₴" на реальних сайтах дуже часто
+            # лежать у СУСІДНІХ, але ОКРЕМИХ тегах (наприклад
+            # <span>170</span><span>₴</span>) — get_text("\n") тоді
+            # розкладає їх на РІЗНІ "рядки", і пошук по кожному рядку
+            # окремо (як було раніше) ніколи їх не з'єднає, хоча сама
+            # регулярка (де \s вже матчить і перенос рядка) це б
+            # спіймала. Тому ціну шукаємо по ВСЬОМУ тексту картки одним
+            # блоком (через пробіл, не через рядки) — саме це і було
+            # причиною "130 посилань знайдено, 0 товарів витягнуто" в
+            # продакшн-логах.
+            card_flat = card.get_text(" ")
 
             price = None
-            for ln in card_lines:
-                m = _EPICENTR_PRICE_RE.search(ln)
-                if not m:
-                    continue
-                price_str = m.group(1).replace(" ", "").replace(",", ".")
+            m = _EPICENTR_PRICE_RE.search(card_flat)
+            if m:
+                price_str = m.group(1).replace(" ", "").replace("\xa0", "").replace(",", ".")
                 try:
                     candidate_price = float(price_str)
                 except ValueError:
-                    continue
+                    candidate_price = 0
                 if candidate_price > 0:
                     price = candidate_price
-                    break
+
+            if debug_first_card is None:
+                debug_first_card = {
+                    "href": href,
+                    "link_text": link.get_text(" ", strip=True)[:80],
+                    "price_found": price,
+                    "card_flat_sample": card_flat[:400],
+                }
+
             if price is None:
                 continue
 
@@ -477,10 +495,13 @@ async def fetch_live_prices(url: str, limit: int = 5) -> list[dict]:
             # наші регулярки (_EPICENTR_PRICE_RE / card-root) більше не
             # потрапляють у потрібні теги. Це вже сигнал щодо ПАРСИНГУ,
             # а не мережі/блокування (бо посилання самі знайшлися).
+            # Додатково лишаємо сирий приклад першої картки — щоб одразу
+            # побачити, чого саме бракує (ціни чи назви), не ганяючи
+            # деплой по колу ще раз.
             logger.warning(
                 "live-price: found %d product links on %s but extracted 0 items "
-                "(price/name parsing likely out of date)",
-                len(product_links), url,
+                "(price/name parsing likely out of date). First card debug: %r",
+                len(product_links), url, debug_first_card,
             )
     except Exception:
         logger.exception("live-price: unexpected parsing error for %s", url)
