@@ -461,14 +461,26 @@ mark {
     margin-bottom: 8px;
 }
 .external-live-shop { font-weight: 700; font-size: 14.5px; }
+/* Раніше це був просто <div> (нередаговане текстове "превью") — тепер
+   /live-search повертає ще й справжнє посилання на сторінку товару
+   (it.url), і сам рядок у catalog.html — це вже <a>, тому прибираємо
+   типове підкреслення/колір посилання і додаємо помітний hover, щоб було
+   зрозуміло, що по рядку можна клікнути. */
 .external-live-item {
     display: flex;
     justify-content: space-between;
     gap: 16px;
-    padding: 7px 0;
+    padding: 7px 4px;
+    margin: 0 -4px;
     border-bottom: 1px solid var(--border);
+    border-radius: 6px;
     font-size: 14px;
+    color: var(--text);
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.1s ease;
 }
+.external-live-item:hover { background: var(--surface-hover); }
 .external-live-item:last-of-type { border-bottom: none; }
 .external-live-price { font-weight: 700; font-family: 'IBM Plex Mono', monospace; white-space: nowrap; }
 .external-live-more {
