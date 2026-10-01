@@ -229,11 +229,25 @@ EXTERNAL_LIVE_SOURCES = [
 # єдиним варіантом). Відкриває людина сама, своїм браузером — це НЕ
 # автоматичний доступ, тому robots.txt тут ні до чого, навіть для Prom.ua/
 # E-Katalog, куди ми самі НЕ ходимо кодом.
+# ВАЖЛИВО: пряме посилання на "рідний" пошук чужого сайту — це завжди
+# здогадка про те, який саме query-параметр він використовує (я не можу
+# відкрити ці сайти як звичайний браузер із цього середовища, щоб побачити
+# адресний рядок після пошуку). Hotline.ua на це вже реально "спіймали" —
+# посилання виявилось нечинним ("Legacy home controller has been
+# disabled" — користувач побачив це у СПРАВЖНЬОМУ браузері, не здогадка).
+# Тому замість вгадування власного пошукового URL кожного сайту —
+# для Hotline.ua, E-Katalog і пошуку самого Епіцентру (його власний
+# /search/ до того ж прямо заборонений їхнім robots.txt) ведемо через
+# Google з обмеженням "site:" — це ЗАВЖДИ чинне посилання (синтаксис
+# Google-пошуку не залежить від того, як влаштований сайт-ціль), просто
+# трохи менш "рідний" вигляд результатів. Prom.ua лишаємо прямим
+# посиланням — цей конкретний формат (search_term=) давно і широко
+# використовується, ризик помилки нижчий.
 EXTERNAL_LINK_SOURCES = [
     {"name": "Prom.ua", "url": "https://prom.ua/search?search_term={q}"},
-    {"name": "Hotline.ua", "url": "https://hotline.ua/ua/search/?query={q}"},
-    {"name": "E-Katalog", "url": "https://ek.ua/ua/?search_={q}"},
-    {"name": "Епіцентр К", "url": "https://epicentrk.ua/ua/search/?q={q}"},
+    {"name": "Hotline.ua", "url": "https://www.google.com/search?q=site:hotline.ua+{q}"},
+    {"name": "E-Katalog", "url": "https://www.google.com/search?q=site:ek.ua+{q}"},
+    {"name": "Епіцентр К", "url": "https://www.google.com/search?q=site:epicentrk.ua+{q}"},
     {"name": "Google Shopping", "url": "https://www.google.com/search?tbm=shop&q={q}"},
 ]
 
