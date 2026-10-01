@@ -444,7 +444,10 @@ mark {
     border-radius: 12px;
     background: var(--surface);
     padding: 18px 22px;
-    margin: 0 0 24px;
+    /* Блок тепер стоїть ПІСЛЯ самого списку матеріалів (раніше був над
+       ним і міг обійтись без верхнього відступу) — додаємо margin-top,
+       щоб він візуально не "прилипав" до таблиці/секцій над ним. */
+    margin: 28px 0 24px;
 }
 .external-search-title { margin: 0 0 14px; font-size: 14px; color: var(--text-muted); }
 .external-live {
