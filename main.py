@@ -1,7 +1,7 @@
 from collections import defaultdict
 from datetime import date
 from io import BytesIO
-from urllib.parse import quote
+from urllib.parse import quote, urljoin
 import hashlib
 import json
 import os
@@ -265,14 +265,63 @@ _EPICENTR_NOISE_LINES = {
 # усі інші умови (достатньо довгий, є літери) і помилково приймався за назву
 # найближчого товару замість справжньої назви рядком вище.
 _RATING_LINE_RE = re.compile(r"^\d+([.,]\d+)?\s*\(\s*\d+")
+# Сторінки окремого товару в Епіцентрі виглядають як "/ua/shop/....html"
+# (на відміну від сторінок КАТЕГОРІЙ — ті без ".html" на кінці, напр.
+# "/ua/shop/kley-dlya-plitki/") — перевірено на реальних посиланнях з
+# результатів пошуку Google на їхній сайт.
+_EPICENTR_PRODUCT_HREF_RE = re.compile(r"/ua/shop/[^/\"'\s]+\.html")
+
+
+def _find_card_root(anchor, href_re, max_levels: int = 8):
+    """
+    Товар на сторінці категорії — це посилання <a href=".../xxx.html">
+    (назва або картинка товару) всередині якоїсь "картки" (div/li/тощо),
+    де поряд лежить і ціна. Ми НЕ знаємо точних CSS-класів цієї картки
+    (немає змоги відкрити сайт як браузер із цього середовища, щоб
+    подивитися розмітку), тому знаходимо межу картки іншим способом:
+    піднімаємось від самого посилання вгору по батьках, поки в межах
+    поточного батька лежить РІВНО ОДНЕ посилання на товар. Щойно їх стає
+    більше одного — значить, піднялися вище за межу картки (потрапили в
+    контейнер із кількома товарами), і треба зупинитись на попередньому
+    рівні. Так ми отримуємо саме "картку" цього конкретного товару, а не
+    всю сітку одразу — і беремо ціну, що реально лежить поруч із ним, а
+    не першу-ліпшу ціну на сторінці.
+    """
+    # Рахуємо РІЗНІ href, а не кількість тегів <a> — у картки товару часто
+    # є ДВА посилання на один і той самий товар (картинка окремим <a> і
+    # назва окремим <a>, з однаковим href). Якщо рахувати голі теги, межа
+    # картки "виявлялася" вже на першому ж рівні (бо там одразу 2 теги), і
+    # ми не встигали піднятися навіть до самої картки з ціною всередині —
+    # саме так загубився перший товар у власному тестовому прогоні.
+    best = anchor
+    node = anchor
+    for _ in range(max_levels):
+        parent = getattr(node, "parent", None)
+        if parent is None or not hasattr(parent, "find_all"):
+            break
+        links_here = parent.find_all("a", href=href_re)
+        distinct_hrefs = {a.get("href") for a in links_here}
+        if len(distinct_hrefs) <= 1:
+            best = parent
+            node = parent
+            continue
+        break
+    return best
 
 
 async def fetch_live_prices(url: str, limit: int = 5) -> list[dict]:
     """
-    Тягне кілька реальних цін зі сторінки КАТЕГОРІЇ Епіцентру (не пошуку —
-    дивись пояснення вище). Повертає [] при БУДЬ-ЯКІЙ проблемі (мережа,
-    таймаут, несподівана розмітка) — виклик цієї функції НІКОЛИ не повинен
-    зламати сторінку каталогу чи навіть просто сповільнити її надовго.
+    Тягне кілька реальних товарів (назва + ціна + ПОСИЛАННЯ на саму
+    сторінку товару) зі сторінки КАТЕГОРІЇ Епіцентру (не пошуку — дивись
+    пояснення вище). Повертає [] при БУДЬ-ЯКІЙ проблемі (мережа, таймаут,
+    несподівана розмітка) — виклик цієї функції НІКОЛИ не повинен зламати
+    сторінку каталогу чи навіть просто сповільнити її надовго.
+
+    Товар без знайденого посилання НЕ включаємо в результат узагалі —
+    людині потрібно саме клікабельне посилання на конкретний товар, а не
+    просто рядок тексту (раніше ця функція розбирала голий текст сторінки
+    без прив'язки до HTML-посилань і тому не знала справжньої адреси
+    товару — це і було виправлено тут).
     """
     cached = _EXTERNAL_PRICE_CACHE.get(url)
     if cached and (time.time() - cached[0]) < _EXTERNAL_PRICE_CACHE_TTL:
@@ -290,50 +339,71 @@ async def fetch_live_prices(url: str, limit: int = 5) -> list[dict]:
     except Exception:
         return []
 
+    results = []
     try:
         soup = BeautifulSoup(html, "html.parser")
         for tag in soup(["script", "style", "noscript"]):
             tag.decompose()
-        lines = [ln.strip() for ln in soup.get_text("\n").split("\n")]
-        lines = [ln for ln in lines if ln]
 
-        results = []
-        seen_names = set()
-        for i, line in enumerate(lines):
-            m = _EPICENTR_PRICE_RE.search(line)
-            if not m:
+        product_links = soup.find_all("a", href=_EPICENTR_PRODUCT_HREF_RE)
+        seen_urls = set()
+        for link in product_links:
+            href = link.get("href") or ""
+            if not href:
                 continue
-            price_str = m.group(1).replace(" ", "").replace(",", ".")
-            try:
-                price = float(price_str)
-            except ValueError:
+            product_url = urljoin(url, href)
+            if product_url in seen_urls:
                 continue
-            if price <= 0:
-                continue
-            # Назва товару — найближчий попередній "текстовий" рядок, що не
-            # є самою ціною і не є службовим словом на кшталт "Купити".
-            name = None
-            for back in range(1, 6):
-                j = i - back
-                if j < 0:
+
+            card = _find_card_root(link, _EPICENTR_PRODUCT_HREF_RE)
+            card_text = card.get_text("\n")
+            card_lines = [ln.strip() for ln in card_text.split("\n") if ln.strip()]
+
+            price = None
+            for ln in card_lines:
+                m = _EPICENTR_PRICE_RE.search(ln)
+                if not m:
+                    continue
+                price_str = m.group(1).replace(" ", "").replace(",", ".")
+                try:
+                    candidate_price = float(price_str)
+                except ValueError:
+                    continue
+                if candidate_price > 0:
+                    price = candidate_price
                     break
-                candidate = lines[j]
-                if _EPICENTR_PRICE_RE.search(candidate):
-                    continue
-                if candidate.lower() in _EPICENTR_NOISE_LINES:
-                    continue
-                if _RATING_LINE_RE.match(candidate):
-                    continue
-                if len(candidate) < 8 or len(candidate) > 160:
-                    continue
-                if not re.search(r"[a-zA-Zа-яА-ЯіІїЇєЄґҐ]", candidate):
-                    continue
-                name = candidate
-                break
-            if not name or name in seen_names:
+            if price is None:
                 continue
-            seen_names.add(name)
-            results.append({"name": name, "price": price})
+
+            # Назва — текст самого посилання (зазвичай і є назвою товару
+            # або містить її в title/alt картинки); якщо посилання не
+            # містить тексту (наприклад, це посилання-картинка) — беремо
+            # title/alt, а як останній варіант — перший "схожий на назву"
+            # рядок картки.
+            name = link.get_text(" ", strip=True)
+            if not name:
+                name = (link.get("title") or "").strip()
+            if not name:
+                img = link.find("img")
+                if img:
+                    name = (img.get("alt") or img.get("title") or "").strip()
+            if not name:
+                for ln in card_lines:
+                    if _EPICENTR_PRICE_RE.search(ln) or _RATING_LINE_RE.match(ln):
+                        continue
+                    if ln.lower() in _EPICENTR_NOISE_LINES:
+                        continue
+                    if len(ln) < 8 or len(ln) > 160:
+                        continue
+                    if not re.search(r"[a-zA-Zа-яА-ЯіІїЇєЄґҐ]", ln):
+                        continue
+                    name = ln
+                    break
+            if not name or len(name) < 4:
+                continue
+
+            seen_urls.add(product_url)
+            results.append({"name": name, "price": price, "url": product_url})
             if len(results) >= limit:
                 break
     except Exception:
