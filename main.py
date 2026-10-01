@@ -272,7 +272,18 @@ _RATING_LINE_RE = re.compile(r"^\d+([.,]\d+)?\s*\(\s*\d+")
 # (на відміну від сторінок КАТЕГОРІЙ — ті без ".html" на кінці, напр.
 # "/ua/shop/kley-dlya-plitki/") — перевірено на реальних посиланнях з
 # результатів пошуку Google на їхній сайт.
-_EPICENTR_PRODUCT_HREF_RE = re.compile(r"/ua/shop/[^/\"'\s]+\.html")
+# Було жорстко "/ua/shop/<слаг-без-слешів>.html" — логи з продакшну
+# показали, що сторінка реально вантажиться (сотні КБ, Nuxt SSR), але під
+# цей шаблон не підійшло ЖОДНЕ посилання. Послаблюємо до будь-якого
+# href, що містить "/shop/" і закінчується на ".html" — без прив'язки
+# до "/ua/" на початку і без заборони додаткових слешів усередині слага
+# (на випадок вкладених шляхів типу /ua/shop/catalog/...).
+_EPICENTR_PRODUCT_HREF_RE = re.compile(r"/shop/[^\"'\s]+\.html")
+# Резервний, ще ширший патерн — лише ".html" після "epicentrk.ua" чи на
+# початку відносного шляху. Використовується ТІЛЬКИ для діагностики
+# (логування прикладів href), щоб наступного разу відразу підібрати
+# правильний основний патерн, не ганяючи деплой по колу.
+_EPICENTR_ANY_HTML_HREF_RE = re.compile(r"\.html(?:[?#]|$)")
 
 
 def _find_card_root(anchor, href_re, max_levels: int = 8):
@@ -379,13 +390,25 @@ async def fetch_live_prices(url: str, limit: int = 5) -> list[dict]:
 
         product_links = soup.find_all("a", href=_EPICENTR_PRODUCT_HREF_RE)
         if not product_links:
-            # 200 OK, але жодного посилання на товар не знайдено — це
-            # або антибот-сторінка (капча/заглушка) замість каталогу,
-            # або сайт змінив розмітку. Лишаємо шматок відповіді в логах,
-            # щоб можна було подивитись у Railway logs, що саме прийшло.
+            # 200 OK, але жодного посилання на товар не знайдено під наш
+            # патерн. Перш ніж здаватися — пробуємо ширший діагностичний
+            # патерн (будь-яке посилання, що закінчується на .html) і
+            # логуємо кілька РЕАЛЬНИХ href з продакшну: це дасть точний
+            # формат посилань Епіцентру, замість гри в угадайку з цієї
+            # пісочниці (де прямий доступ до сайту заблокований мережевою
+            # політикою, тому побачити живу розмітку інакше не вийде).
+            fallback_links = soup.find_all("a", href=_EPICENTR_ANY_HTML_HREF_RE)
+            sample_hrefs = []
+            for a in fallback_links:
+                h = a.get("href") or ""
+                if h and h not in sample_hrefs:
+                    sample_hrefs.append(h)
+                if len(sample_hrefs) >= 8:
+                    break
             logger.warning(
-                "live-price: 0 product links on %s (body %d bytes, starts: %r)",
-                url, len(html), html[:300],
+                "live-price: 0 product links on %s (body %d bytes). "
+                "Fallback *.html links found: %d, sample: %r",
+                url, len(html), len(fallback_links), sample_hrefs,
             )
         seen_urls = set()
         for link in product_links:
