@@ -289,8 +289,15 @@
             if (data.matched && data.items && data.items.length) {
                 liveShop.textContent = data.shop;
                 data.items.forEach(function (it) {
-                    var row = document.createElement("div");
+                    // Кожен рядок — це посилання САМЕ на сторінку цього
+                    // товару (it.url прийшов із сервера, /live-search), а
+                    // не просто текст — відкривається в новій вкладці,
+                    // так само як кнопки Prom.ua/Google Shopping нижче.
+                    var row = document.createElement("a");
                     row.className = "external-live-item";
+                    row.href = it.url;
+                    row.target = "_blank";
+                    row.rel = "noopener noreferrer";
                     var name = document.createElement("span");
                     name.textContent = it.name;
                     var price = document.createElement("span");
