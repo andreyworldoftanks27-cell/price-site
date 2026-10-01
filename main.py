@@ -1,16 +1,23 @@
 from collections import defaultdict
 from datetime import date
+from io import BytesIO
 from urllib.parse import quote
 import hashlib
 import json
 import os
 import re
+import time
 
+import httpx
+from bs4 import BeautifulSoup
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
+from openpyxl import Workbook
+from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import select, func
 
@@ -145,6 +152,193 @@ def translate_category(name: str, lang: str) -> str:
 
 
 templates.env.filters["cat"] = translate_category
+
+# ---------- "Живі ціни" із зовнішніх джерел (для товарів, яких нема у нас) ----------
+#
+# Коли людина шукає в каталозі щось, чого у нашій базі взагалі немає — раніше
+# єдиний варіант був просто нічого не знайти. Тепер для НЕБАГАТЬОХ (навмисно!)
+# добре перевірених зовнішніх джерел намагаємося показати реальні ціни прямо
+# на сторінці, а не просто дати посилання кудись.
+#
+# ВАЖЛИВО, чому це реалізовано саме так, а не "як зі скрейпінгом зазвичай":
+#   - Prom.ua: robots.txt забороняє автоматичний доступ взагалі — не чіпаємо.
+#   - E-Katalog (ek.ua): robots.txt забороняє саме сторінки пошуку й товару —
+#     не чіпаємо, лишаємо тільки як посилання (людина своїм браузером може,
+#     боту — не можна, це різні речі).
+#   - Hotline.ua: пошук robots.txt не забороняє, але сторінка — JS-додаток
+#     (SPA), без браузера з виконанням JS звичайним запитом із сервера
+#     отримуємо порожню "заглушку" замість даних — втягувати сюди повноцінний
+#     headless-браузер (Playwright+Chromium) заради цього на невеликому
+#     Railway-сервісі — завелика і крихка ціна, не робимо цього зараз.
+#   - Епіцентр К: сторінки КАТЕГОРІЙ (не пошуку!) — звичайний серверний HTML
+#     з реальними цінами в тексті, і robots.txt забороняє лише /search/, не
+#     сторінки категорій. Тому йдемо в обхід їхнього пошуку: тримаємо свій
+#     маленький список "запит → конкретна сторінка категорії Епіцентру",
+#     і якщо запит користувача співпадає з одним із них — підвантажуємо
+#     САМЕ ЦЮ сторінку (дозволено) і дістаємо з неї кілька реальних цін.
+#
+# Текстовий розбір HTML Епіцентру — це найкрихкіша частина: я не маю змоги
+# з цього середовища відкрити їхню сторінку як звичайний браузер і подивитися
+# точні class-атрибути картки товару, тому розбір зроблено не по CSS-класах
+# (вони можуть бути вгадані неправильно), а по видимому ТЕКСТУ сторінки —
+# шукаємо рядки з ціною ("123.45 ₴") і беремо найближчий попередній рядок,
+# схожий на назву товару. Це грубіше, ніж розбір по точних класах, але не
+# ламається, якщо я вгадав клас неправильно — просто поверне порожній список,
+# сторінка каталогу від цього ніяк не постраждає. Перший реальний запуск на
+# справжньому сайті покаже, чи треба це підлаштувати.
+EXTERNAL_LIVE_SOURCES = [
+    {
+        "keywords": ["клей для плитки", "плиточний клей", "клей плитка", "плиточный клей"],
+        "shop": "Епіцентр К",
+        "url": "https://epicentrk.ua/ua/shop/kley-dlya-plitki/",
+    },
+    {
+        "keywords": ["шпаклівка", "шпатлевка", "шпаклевка"],
+        "shop": "Епіцентр К",
+        "url": "https://epicentrk.ua/ua/shop/shpaklevka/",
+    },
+    {
+        "keywords": ["фарба", "краска"],
+        "shop": "Епіцентр К",
+        "url": "https://epicentrk.ua/ua/shop/kraski/",
+    },
+    {
+        "keywords": ["саморіз", "саморізи", "саморез", "саморезы"],
+        "shop": "Епіцентр К",
+        "url": "https://epicentrk.ua/ua/shop/samorezy/",
+    },
+    {
+        "keywords": ["гідроізоляційна стрічка", "гидроизоляционная лента", "стрічка гідроізоляц"],
+        "shop": "Епіцентр К",
+        "url": "https://epicentrk.ua/ua/shop/lenty-stroitelno-montazhnye/",
+    },
+    {
+        "keywords": ["цемент"],
+        "shop": "Епіцентр К",
+        "url": "https://epicentrk.ua/ua/shop/tsement/",
+    },
+    {
+        "keywords": ["грунтовка", "ґрунтовка", "грунт"],
+        "shop": "Епіцентр К",
+        "url": "https://epicentrk.ua/ua/shop/gruntovka/",
+    },
+]
+
+# Прості посилання-переходи — завжди показуються поряд із "живими" цінами
+# (а якщо під запит не знайшлося жодного з EXTERNAL_LIVE_SOURCES — лишаються
+# єдиним варіантом). Відкриває людина сама, своїм браузером — це НЕ
+# автоматичний доступ, тому robots.txt тут ні до чого, навіть для Prom.ua/
+# E-Katalog, куди ми самі НЕ ходимо кодом.
+EXTERNAL_LINK_SOURCES = [
+    {"name": "Prom.ua", "url": "https://prom.ua/search?search_term={q}"},
+    {"name": "Hotline.ua", "url": "https://hotline.ua/ua/search/?query={q}"},
+    {"name": "E-Katalog", "url": "https://ek.ua/ua/?search_={q}"},
+    {"name": "Епіцентр К", "url": "https://epicentrk.ua/ua/search/?q={q}"},
+    {"name": "Google Shopping", "url": "https://www.google.com/search?tbm=shop&q={q}"},
+]
+
+_EXTERNAL_PRICE_CACHE: dict[str, tuple[float, list]] = {}
+_EXTERNAL_PRICE_CACHE_TTL = 60 * 60  # година — не дзвонимо на чужий сайт при кожному чиху
+
+_EPICENTR_PRICE_RE = re.compile(r"(\d[\d\s]{0,6}(?:[.,]\d{1,2})?)\s*₴")
+_EPICENTR_NOISE_LINES = {
+    "додати в кошик", "купити", "порівняти", "в обраному", "немає в наявності",
+    "в наявності", "швидкий перегляд", "новинка", "акція", "хіт продажів",
+    "розпродаж", "за кредитом", "в кредит", "відгуки", "характеристики",
+}
+# Рядок виду "4.8 (120 відгуків)" — рейтинг товару, а не назва. Без цього
+# фільтра (знайдено власним тестом на вигаданій сторінці!) він підходив під
+# усі інші умови (достатньо довгий, є літери) і помилково приймався за назву
+# найближчого товару замість справжньої назви рядком вище.
+_RATING_LINE_RE = re.compile(r"^\d+([.,]\d+)?\s*\(\s*\d+")
+
+
+async def fetch_live_prices(url: str, limit: int = 5) -> list[dict]:
+    """
+    Тягне кілька реальних цін зі сторінки КАТЕГОРІЇ Епіцентру (не пошуку —
+    дивись пояснення вище). Повертає [] при БУДЬ-ЯКІЙ проблемі (мережа,
+    таймаут, несподівана розмітка) — виклик цієї функції НІКОЛИ не повинен
+    зламати сторінку каталогу чи навіть просто сповільнити її надовго.
+    """
+    cached = _EXTERNAL_PRICE_CACHE.get(url)
+    if cached and (time.time() - cached[0]) < _EXTERNAL_PRICE_CACHE_TTL:
+        return cached[1]
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=6.0,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; reestr-cin-bot/1.0; +price-site)"},
+            follow_redirects=True,
+        ) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            html = resp.text
+    except Exception:
+        return []
+
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+        for tag in soup(["script", "style", "noscript"]):
+            tag.decompose()
+        lines = [ln.strip() for ln in soup.get_text("\n").split("\n")]
+        lines = [ln for ln in lines if ln]
+
+        results = []
+        seen_names = set()
+        for i, line in enumerate(lines):
+            m = _EPICENTR_PRICE_RE.search(line)
+            if not m:
+                continue
+            price_str = m.group(1).replace(" ", "").replace(",", ".")
+            try:
+                price = float(price_str)
+            except ValueError:
+                continue
+            if price <= 0:
+                continue
+            # Назва товару — найближчий попередній "текстовий" рядок, що не
+            # є самою ціною і не є службовим словом на кшталт "Купити".
+            name = None
+            for back in range(1, 6):
+                j = i - back
+                if j < 0:
+                    break
+                candidate = lines[j]
+                if _EPICENTR_PRICE_RE.search(candidate):
+                    continue
+                if candidate.lower() in _EPICENTR_NOISE_LINES:
+                    continue
+                if _RATING_LINE_RE.match(candidate):
+                    continue
+                if len(candidate) < 8 or len(candidate) > 160:
+                    continue
+                if not re.search(r"[a-zA-Zа-яА-ЯіІїЇєЄґҐ]", candidate):
+                    continue
+                name = candidate
+                break
+            if not name or name in seen_names:
+                continue
+            seen_names.add(name)
+            results.append({"name": name, "price": price})
+            if len(results) >= limit:
+                break
+    except Exception:
+        results = []
+
+    _EXTERNAL_PRICE_CACHE[url] = (time.time(), results)
+    return results
+
+
+def find_live_source(query: str):
+    q_norm = query.strip().lower()
+    if not q_norm:
+        return None
+    for entry in EXTERNAL_LIVE_SOURCES:
+        for kw in entry["keywords"]:
+            if kw in q_norm or q_norm in kw:
+                return entry
+    return None
+
 
 # Названия товаров, в отличие от категорий, приходят из прайсов поставщиков
 # как свободный текст — их тысячи и постоянно добавляются новые, поэтому
@@ -625,6 +819,213 @@ async def catalog(
         "updated_today": updated_today,
     })
     return templates.TemplateResponse("catalog.html", ctx)
+
+
+@app.get("/export.xlsx")
+async def export_catalog(
+    request: Request,
+    category: str = "",
+    supplier: str = "",
+    q: str = "",
+    sort: str = "name",
+    compare: str = "",
+):
+    """
+    Кнопка "Експорт в Excel" на каталозі — повторює ті самі фільтри
+    (постачальник/категорія/сортування/порівняння), що вже застосовані на
+    сторінці, і додатково сам фільтрує за текстовим пошуком "q" (на самій
+    сторінці каталогу він працює тільки на клієнті — тут його доводиться
+    застосувати вручну в Python, інакше вигрузка не відповідала б тому,
+    що людина реально бачить на екрані). Файл будується в пам'яті
+    (BytesIO), без тимчасових файлів на диску.
+    """
+    if not require_login(request):
+        return RedirectResponse("/login", status_code=302)
+
+    if sort not in SORT_OPTIONS:
+        sort = "name"
+    compare_on = compare == "1"
+    lang = get_lang(request)
+    t = get_translations(lang)
+    query_norm = q.strip().lower()
+
+    def category_matches_query(cat_name: str) -> bool:
+        if not query_norm:
+            return True
+        ru_name = CATEGORY_RU.get(cat_name, cat_name)
+        return query_norm in cat_name.lower() or query_norm in ru_name.lower()
+
+    def name_or_category_matches(name: str, cat_name: str) -> bool:
+        if not query_norm:
+            return True
+        return query_norm in name.lower() or category_matches_query(cat_name)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = (t.get("nav_catalog") or "Каталог")[:31]
+    header_font = Font(bold=True)
+
+    async with get_session() as session:
+        if compare_on:
+            # Той самий запит, що й "порівняти ціни постачальників" на
+            # сторінці каталогу (без фільтра по категорії всередині
+            # групування — інакше зіставлення між постачальниками
+            # ламалося б при виборі однієї категорії).
+            cmp_stmt = (
+                select(Material, Supplier.name.label("supplier_name"), Category.name.label("category_name"))
+                .join(Supplier, Material.supplier_id == Supplier.id)
+                .join(Category, Material.category_id == Category.id)
+            )
+            if supplier:
+                cmp_stmt = cmp_stmt.where(Supplier.name.ilike(f"%{supplier}%"))
+            if category:
+                cmp_stmt = cmp_stmt.where(Category.name == category)
+            cmp_rows = (await session.execute(cmp_stmt.limit(5000))).all()
+
+            groups_by_key: dict[str, list] = defaultdict(list)
+            for m, supplier_name, category_name in cmp_rows:
+                key = _normalize_name(m.name)
+                groups_by_key[key].append({
+                    "name": m.name, "category": category_name, "supplier": supplier_name,
+                    "quantity": m.quantity, "price": float(m.current_price),
+                })
+            groups = []
+            for items in groups_by_key.values():
+                distinct_suppliers = {it["supplier"] for it in items}
+                if len(distinct_suppliers) < 2:
+                    continue
+                if not name_or_category_matches(items[0]["name"], items[0]["category"]):
+                    continue
+                items.sort(key=lambda it: it["price"])
+                groups.append(items)
+            groups.sort(key=lambda items: items[0]["name"])
+
+            headers = [t["th_material"], t["th_category"], t["th_supplier"], t["th_quantity"], t["th_price"], t["compare_cheapest"]]
+            ws.append(headers)
+            for cell in ws[1]:
+                cell.font = header_font
+            for items in groups:
+                for i, it in enumerate(items):
+                    ws.append([
+                        translate_material_name(it["name"], lang),
+                        translate_category(it["category"], lang),
+                        it["supplier"],
+                        float(it["quantity"]) if it["quantity"] is not None else None,
+                        it["price"],
+                        t["compare_cheapest"] if i == 0 else "",
+                    ])
+            widths = [50, 26, 16, 12, 12, 16]
+        else:
+            prev_price_subq = (
+                select(PriceHistory.price)
+                .where(PriceHistory.material_id == Material.id)
+                .where(PriceHistory.price_date < Material.price_date)
+                .order_by(PriceHistory.price_date.desc())
+                .limit(1)
+                .correlate(Material)
+                .scalar_subquery()
+            )
+            stmt = (
+                select(
+                    Material,
+                    Supplier.name.label("supplier_name"),
+                    Category.name.label("category_name"),
+                    prev_price_subq.label("prev_price"),
+                )
+                .join(Supplier, Material.supplier_id == Supplier.id)
+                .join(Category, Material.category_id == Category.id)
+            )
+            if supplier:
+                stmt = stmt.where(Supplier.name.ilike(f"%{supplier}%"))
+            if category:
+                stmt = stmt.where(Category.name == category)
+
+            if sort == "price_asc":
+                stmt = stmt.order_by(Material.current_price.asc(), Material.name.asc())
+            elif sort == "price_desc":
+                stmt = stmt.order_by(Material.current_price.desc(), Material.name.asc())
+            elif sort == "qty_desc":
+                stmt = stmt.order_by(Material.quantity.desc().nulls_last(), Material.name.asc())
+            elif sort == "qty_asc":
+                stmt = stmt.order_by(Material.quantity.asc().nulls_last(), Material.name.asc())
+            elif sort == "supplier":
+                stmt = stmt.order_by(Supplier.name.asc(), Material.name.asc())
+            else:
+                stmt = stmt.order_by(Category.name.asc(), Material.name.asc())
+
+            # Экспорт — не хот-путь, який відкривається щоразу при рендерингу
+            # сторінки (там ліміт 1000 через HTML), а разова дія по кліку —
+            # тому віддаємо все, що підходить під фільтр, з великим запасом.
+            rows = (await session.execute(stmt.limit(10000))).all()
+
+            headers = [t["th_material"], t["th_category"], t["th_supplier"], t["th_price_date"], t["th_quantity"], t["th_price"]]
+            ws.append(headers)
+            for cell in ws[1]:
+                cell.font = header_font
+            for m, supplier_name, category_name, prev_price in rows:
+                if not name_or_category_matches(m.name, category_name):
+                    continue
+                ws.append([
+                    translate_material_name(m.name, lang),
+                    translate_category(category_name, lang),
+                    supplier_name,
+                    m.price_date,
+                    float(m.quantity) if m.quantity is not None else None,
+                    float(m.current_price),
+                ])
+            widths = [50, 26, 16, 13, 12, 12]
+
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            if isinstance(cell.value, float):
+                cell.number_format = "0.00"
+            elif isinstance(cell.value, date):
+                cell.number_format = "yyyy-mm-dd"
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"catalog_{date.today().isoformat()}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/live-search")
+async def live_search(request: Request, q: str = ""):
+    """
+    Викликається з каталогу через fetch() у JS, коли пошук по нашій базі
+    нічого не знайшов — див. EXTERNAL_LIVE_SOURCES вище для пояснення, чому
+    "живі" ціни є лише для невеликого заданого списку запитів (Епіцентр К),
+    а для решти повертаються тільки посилання для переходу.
+    """
+    if not require_login(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    q = q.strip()
+    links = [
+        {"name": src["name"], "url": src["url"].format(q=quote(q))}
+        for src in EXTERNAL_LINK_SOURCES
+    ]
+    if not q:
+        return JSONResponse({"matched": False, "links": links, "items": []})
+
+    entry = find_live_source(q)
+    if not entry:
+        return JSONResponse({"matched": False, "links": links, "items": []})
+
+    items = await fetch_live_prices(entry["url"])
+    return JSONResponse({
+        "matched": True,
+        "shop": entry["shop"],
+        "shop_url": entry["url"],
+        "items": items,
+        "links": links,
+    })
 
 
 @app.get("/material/{material_id}/history", response_class=HTMLResponse)
