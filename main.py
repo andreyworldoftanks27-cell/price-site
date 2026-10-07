@@ -493,7 +493,7 @@ def _find_card_root(anchor, href_re, max_levels: int = 8):
     return best
 
 
-async def fetch_live_prices(url: str, limit: int = 5, href_re=None) -> list[dict]:
+async def fetch_live_prices(url: str, limit: int = 8, href_re=None, scan_limit: int = 20) -> list[dict]:
     """
     Тягне кілька реальних товарів (назва + ціна + ПОСИЛАННЯ на саму
     сторінку товару) зі сторінки КАТЕГОРІЇ (не пошуку — дивись пояснення
@@ -507,6 +507,16 @@ async def fetch_live_prices(url: str, limit: int = 5, href_re=None) -> list[dict
     ".../pNNNN/"), тому ЦЯ функція більше не прив'язана до одного сайту:
     заклик без href_re лишається сумісним зі старими викликами (підставляє
     патерн Епіцентру за замовчуванням).
+
+    limit — скільки товарів ПОВЕРНУТИ (було 5, тепер 8 — користувач прямо
+    попросив "ще пару рядків"); scan_limit — скільки карток товару взагалі
+    РОЗІБРАТИ зі сторінки перед сортуванням (більше за limit навмисно: щоб
+    "найдорожчі" (див. нижче) обиралися з ширшого набору, а не лише з
+    перших-ліпших n карток на сторінці).
+
+    Результат сортується за ЦІНОЮ, найдорожчі спочатку — так користувач
+    попросив явно ("пусть показывает сначала дорогие варианты"): так
+    зручно порівнювати діапазон, а не лише випадкові перші товари сторінки.
 
     Товар без знайденого посилання НЕ включаємо в результат узагалі —
     людині потрібно саме клікабельне посилання на конкретний товар, а не
@@ -680,8 +690,15 @@ async def fetch_live_prices(url: str, limit: int = 5, href_re=None) -> list[dict
 
             seen_urls.add(product_url)
             results.append({"name": name, "price": price, "url": product_url})
-            if len(results) >= limit:
+            if len(results) >= scan_limit:
                 break
+
+        # Найдорожчі спочатку (користувач попросив явно) — і ЛИШЕ ТЕПЕР,
+        # після того як розібрали до scan_limit карток, а не перших-ліпших
+        # limit: інакше "найдорожчий" був би просто найдорожчим серед
+        # випадкових перших 8 товарів сторінки, а не серед ширшого набору.
+        results.sort(key=lambda r: r["price"], reverse=True)
+        results = results[:limit]
 
         if product_links and not results:
             # Посилання на товари є, а жодна картка не дала ні ціни, ні
@@ -752,7 +769,7 @@ def _words_fuzzy_match(a: str, b: str) -> bool:
     return a in b or b in a
 
 
-def find_live_sources(query: str, max_results: int = 5) -> list[dict]:
+def find_live_sources(query: str, max_results: int = 6) -> list[dict]:
     """
     Було: find_live_source (однина) повертав ЛИШЕ ОДНЕ, найкраще за
     рахунком, джерело — тому якщо запит однаково добре підходив під
