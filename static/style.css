@@ -189,6 +189,40 @@ body {
     vertical-align: middle;
 }
 
+/* ---------- Category icon tile (замінник "фото товару" — справжніх фото
+   немає в прайс-листах постачальників, тому це узагальнена іконка
+   КАТЕГОРІЇ матеріалу; та сама темно-сіра плитка, що й .supplier-avatar
+   вище, щоб не вносити новий візуальний стиль) ---------- */
+.material-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-muted);
+    margin-right: 8px;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+.material-icon-svg {
+    width: 14px;
+    height: 14px;
+}
+/* Трохи більша плитка для заголовка картки товару (history.html) */
+.material-icon-lg {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    margin-right: 10px;
+}
+.material-icon-lg .material-icon-svg {
+    width: 18px;
+    height: 18px;
+}
+
 mark {
     background: var(--accent);
     color: var(--accent-text);
