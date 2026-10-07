@@ -207,6 +207,11 @@ _EPICENTR_PRODUCT_HREF_RE = re.compile(r"/shop/[^\"'\s]+\.html")
 # сторінках категорій build.rozetka.com.ua) — ловимо будь-яке посилання, що
 # містить "/pNNNN" з необов'язковим завершальним слешем.
 _ROZETKA_PRODUCT_HREF_RE = re.compile(r"/p\d+(?:[/?#]|$)")
+# Товар Vencon.ua: "/products/<слаг>" (перевірено на реальній сторінці
+# категорії /catalog/truby) — на відміну від Епіцентру й Rozetka, тут немає
+# числового ID у посиланні, лише текстовий слаг, тому патерн — за самим
+# префіксом шляху.
+_VENCON_PRODUCT_HREF_RE = re.compile(r"/products/[^\"'\s]+")
 
 
 def _src(keywords, slug, href_re=None):
@@ -307,6 +312,24 @@ EXTERNAL_LIVE_SOURCES = [
         ["ізоляція труб", "утеплення труб", "утеплювач для труб", "изоляция труб", "утепление труб", "теплоізол"],
         "ua/izolyatsiya-trub/c4629794/",
     ),
+
+    # --- Vencon.ua: окремий спеціалізований магазин труб та сантехніки
+    # (не "популярний" у сенсі впізнаваності бренду, але реальний і
+    # перевірений — користувач прямо просив саме такі, не обов'язково
+    # відомі). Інша структура посилань на товар (".../products/<slug>",
+    # без "/p<ID>/" чи ".html") — тому своя регулярка href_re. Навмисно
+    # стоїть ТУТ, а не в кінці списку труб — це ЄДИНА "загальна" категорія
+    # труб (не розбита по матеріалу/типу, як у Rozetka/Епіцентру), тому для
+    # простого запиту "труби" без уточнень вона має реальний шанс
+    # потрапити в перші max_results поряд із Rozetka й Епіцентром, а не
+    # загубитися в кінці через сортування за порядком списку.
+    {
+        "keywords": ["труба", "труби", "труба для опалення", "труба для водопостачання", "трубы", "труба для отопления"],
+        "shop": "Vencon.ua",
+        "url": "https://vencon.ua/catalog/truby",
+        "href_re": _VENCON_PRODUCT_HREF_RE,
+    },
+
     _src_rozetka(
         [
             "металева труба", "труба металева", "труба стальна", "сталева труба", "труба нержавіюча",
@@ -319,6 +342,15 @@ EXTERNAL_LIVE_SOURCES = [
         "ua/ingenernaya-santehnika/c4629728/",
     ),
     _src_rozetka(["цемент"], "tsement/c4640088/"),
+
+    # --- Епіцентр: виявилось, що категорії труб у них ТЕЖ Є (користувач
+    # мав рацію) — я просто не додав їх у перший раз, бо дивився лише на
+    # "стандартний" розділ "труби", а в Епіцентра вони розкидані по типу
+    # матеріалу труби (ПВХ/мідь/алюміній), під окремими slug'ами. Кожен
+    # перевірений живим запитом, як і решта списку _src() вище.
+    _src(["труба пвх", "труби пвх", "pvc труба", "пластикова труба", "пластиковая труба"], "pvkh-truby"),
+    _src(["мідна труба", "мідні труби", "медная труба", "медные трубы"], "mednye-truby"),
+    _src(["алюмінієва труба", "алюмінієві труби", "алюминиевая труба", "алюминиевые трубы"], "truby-alyuminievye"),
 ]
 
 # Прості посилання-переходи — завжди показуються поряд із "живими" цінами
@@ -357,6 +389,16 @@ EXTERNAL_LINK_SOURCES = [
     # і знову через Google "site:", бо рідний пошуковий параметр теж не
     # вдалося підтвердити з цього середовища.
     {"name": "Vista.ua", "url": "https://www.google.com/search?q=site:vista.ua+{q}"},
+    # Будia.ua, Будмаг (strojmag.ua), Vencon.ua — реальні спеціалізовані
+    # магазини будматеріалів (перевірено живим запитом до головної
+    # сторінки/каталогу кожного, не "популярні" бренди, але саме такі
+    # просив додати користувач). Власний пошук у всіх трьох теж через
+    # robots.txt заборонений ("/search", "/shop/search", "*search?q=" —
+    # перевірено живим запитом до robots.txt кожного) — тому так само
+    # через Google "site:", а не вгадування параметра.
+    {"name": "Budia.ua", "url": "https://www.google.com/search?q=site:budia.ua+{q}"},
+    {"name": "Будмаг (strojmag.ua)", "url": "https://www.google.com/search?q=site:strojmag.ua+{q}"},
+    {"name": "Vencon.ua", "url": "https://www.google.com/search?q=site:vencon.ua+{q}"},
     {"name": "Google Shopping", "url": "https://www.google.com/search?tbm=shop&q={q}"},
 ]
 
@@ -369,7 +411,16 @@ _EXTERNAL_PRICE_CACHE_TTL = 60 * 60  # година — не дзвонимо н
 # заборонити матч ПОЧИНАТИ одразу після "-", регулярка просто почне на
 # одну цифру пізніше ("45.26" замість "245.26") — тому такі бейджі
 # вирізаються з тексту картки ЦІЛКОМ, ще до пошуку справжньої ціни.
-_EPICENTR_DISCOUNT_BADGE_RE = re.compile(r"-\s?\d[\d\xa0.,]*\s*(?:₴|%)")
+#
+# Валюта позначається НЕ ОДНАКОВО на різних сайтах: Епіцентр/Rozetka/
+# budia.ua — символом "₴" в самому тексті картки; Vencon.ua/strojmag.ua —
+# словом "грн" (іноді з крапкою, "грн."). Було вшито лише "₴" — через це
+# Vencon.ua, хоч і доданий як джерело (fetch_live_prices нижче), просто
+# НІКОЛИ не знаходив би жодної ціни. Тому обидва варіанти — в одній
+# регулярці, а не окремо на кожен сайт (менше коду, і будь-який НОВИЙ
+# сайт з такою ж валютною позначкою запрацює без додаткових змін).
+_CURRENCY_RE_PART = r"(?:₴|грн\.?)"
+_DISCOUNT_BADGE_RE = re.compile(r"-\s?\d[\d\xa0.,]*\s*" + _CURRENCY_RE_PART)
 
 # Групування розрядів усередині самого числа ("1 700 ₴") допускається
 # ЛИШЕ через невідривний пробіл (\xa0) — так насправді форматують цифри
@@ -378,7 +429,7 @@ _EPICENTR_DISCOUNT_BADGE_RE = re.compile(r"-\s?\d[\d\xa0.,]*\s*(?:₴|%)")
 # склеює текст із РІЗНИХ, нічим не пов'язаних тегів — через це раніше
 # "27" (звідкись збоку) і "279.00" (справжня ціна) злипались в
 # безглузде "27279.00".
-_EPICENTR_PRICE_RE = re.compile(r"(\d[\d\xa0]{0,6}(?:[.,]\d{1,2})?)\s*₴")
+_PRICE_RE = re.compile(r"(\d[\d\xa0]{0,6}(?:[.,]\d{1,2})?)\s*" + _CURRENCY_RE_PART)
 _EPICENTR_NOISE_LINES = {
     "додати в кошик", "купити", "порівняти", "в обраному", "немає в наявності",
     "в наявності", "швидкий перегляд", "новинка", "акція", "хіт продажів",
@@ -569,7 +620,7 @@ async def fetch_live_prices(url: str, limit: int = 5, href_re=None) -> list[dict
             # Прибираємо бейджі знижки ("-245.26 ₴", "-27%") ДО пошуку
             # ціни — інакше сума знижки (яка виглядає як звичайна ціна)
             # може переплутатися зі справжньою ціною товару.
-            card_flat_for_price = _EPICENTR_DISCOUNT_BADGE_RE.sub(" ", card_flat)
+            card_flat_for_price = _DISCOUNT_BADGE_RE.sub(" ", card_flat)
 
             # У картці нерідко лишається ОДРАЗУ дві суми з "₴": стара
             # закреслена ціна і справжня (знижена) — і в тексті стара
@@ -578,7 +629,7 @@ async def fetch_live_prices(url: str, limit: int = 5, href_re=None) -> list[dict
             # означенням менша за стару, а якщо знижки нема — кандидат
             # просто один і це нічого не змінює.
             price = None
-            for raw in _EPICENTR_PRICE_RE.findall(card_flat_for_price):
+            for raw in _PRICE_RE.findall(card_flat_for_price):
                 price_str = raw.replace(" ", "").replace("\xa0", "").replace(",", ".")
                 try:
                     candidate_price = float(price_str)
@@ -614,7 +665,7 @@ async def fetch_live_prices(url: str, limit: int = 5, href_re=None) -> list[dict
                     name = (img.get("alt") or img.get("title") or "").strip()
             if not name:
                 for ln in card_lines:
-                    if _EPICENTR_PRICE_RE.search(ln) or _RATING_LINE_RE.match(ln):
+                    if _PRICE_RE.search(ln) or _RATING_LINE_RE.match(ln):
                         continue
                     if ln.lower() in _EPICENTR_NOISE_LINES:
                         continue
@@ -635,7 +686,7 @@ async def fetch_live_prices(url: str, limit: int = 5, href_re=None) -> list[dict
         if product_links and not results:
             # Посилання на товари є, а жодна картка не дала ні ціни, ні
             # назви — найімовірніше, розмітку сторінки знову змінили і
-            # наші регулярки (_EPICENTR_PRICE_RE / card-root) більше не
+            # наші регулярки (_PRICE_RE / card-root) більше не
             # потрапляють у потрібні теги. Це вже сигнал щодо ПАРСИНГУ,
             # а не мережі/блокування (бо посилання самі знайшлися).
             # Додатково лишаємо сирий приклад першої картки — щоб одразу
@@ -685,7 +736,23 @@ def _words_match(a: str, b: str) -> bool:
     return longer.startswith(shorter)
 
 
-def find_live_sources(query: str, max_results: int = 3) -> list[dict]:
+def _words_fuzzy_match(a: str, b: str) -> bool:
+    """
+    Другий, ЩИРІШИЙ рівень збігу — підрядок в БУДЬ-ЯКИЙ бік (не лише
+    префікс), і використовується ЛИШЕ як fallback, коли _words_match не
+    знайшов рівно ЖОДНОГО джерела для всього запиту (див. find_live_sources
+    нижче). Ловить більше відмінкових форм і дрібних розбіжностей
+    ("трубу" проти "труби", де спільний лише корінь не з початку/кінця),
+    ціною трохи більшої кількості випадкових збігів — прийнятний компроміс,
+    бо спрацьовує лише тоді, коли точний пошук інакше показав би геть
+    нічого.
+    """
+    if len(a) < 4 or len(b) < 4:
+        return a == b
+    return a in b or b in a
+
+
+def find_live_sources(query: str, max_results: int = 5) -> list[dict]:
     """
     Було: find_live_source (однина) повертав ЛИШЕ ОДНЕ, найкраще за
     рахунком, джерело — тому якщо запит однаково добре підходив під
@@ -718,6 +785,23 @@ def find_live_sources(query: str, max_results: int = 3) -> list[dict]:
         score = sum(1 for qw in q_words if any(_words_match(qw, ew) for ew in entry_words))
         if score > 0:
             scored.append((score, entry))
+
+    if not scored:
+        # Жодного ТОЧНОГО збігу — перш ніж здатися зовсім, пробуємо
+        # ширший fallback-пошук (_words_fuzzy_match, підрядок у будь-який
+        # бік). Це НЕ повноцінний повнотекстовий пошук "як у Google" — за
+        # такими запитами всюди або явно забороняє robots.txt (власний
+        # /search/ Епіцентру, Rozetka, Prom.ua, E-Katalog...), або сторінка
+        # результатів — JS-додаток без серверного HTML (Hotline.ua,
+        # Vista.ua) — тобто його просто нема звідки чесно узяти без
+        # порушення чужих правил чи важкого headless-браузера на кожен
+        # запит. Це — компроміс: розширює РОЗПІЗНАВАННЯ вже заданих
+        # категорій (більше форм слова), а не перелік самих категорій.
+        for entry in EXTERNAL_LIVE_SOURCES:
+            entry_words = entry["_kw_words"]  # вже закешовано вище
+            score = sum(1 for qw in q_words if any(_words_fuzzy_match(qw, ew) for ew in entry_words))
+            if score > 0:
+                scored.append((score, entry))
 
     # Стабільне сортування за рахунком, найкращі спочатку; порядок рівних
     # за рахунком лишається таким, як у EXTERNAL_LIVE_SOURCES (sort у
