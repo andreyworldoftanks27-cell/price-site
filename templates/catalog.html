@@ -79,7 +79,7 @@
     <tbody>
         {% for m in items %}
         <tr class="material-row clickable-row" data-search="{{ (m.name ~ ' ' ~ (m.name|matname('ru')) ~ ' ' ~ m.category ~ ' ' ~ (m.category|cat('ru')))|lower }}" onclick="location.href='/material/{{ m.id }}/history'">
-            <td class="material-name"><span class="name-text">{{ m.name|matname(lang) }}</span></td>
+            <td class="material-name"><span class="material-icon"><svg class="material-icon-svg"><use href="#icon-{{ m.name|icon }}"></use></svg></span><span class="name-text">{{ m.name|matname(lang) }}</span></td>
             {% if show_category %}<td><span class="category-pill">{{ m.category|cat(lang) }}</span></td>{% endif %}
             <td class="muted"><span class="supplier-avatar">{{ m.supplier[0]|upper }}</span>{{ m.supplier }}</td>
             <td class="muted">{{ m.price_date }}</td>
@@ -104,7 +104,7 @@
     {% for group in compare_groups %}
     <section class="category-section compare-group">
         <div class="category-section-head">
-            <span class="category-section-name">{{ group.name|matname(lang) }}</span>
+            <span class="category-section-name"><span class="material-icon"><svg class="material-icon-svg"><use href="#icon-{{ group.name|icon }}"></use></svg></span>{{ group.name|matname(lang) }}</span>
             <span class="category-section-count">{{ group.supplier_count }} {{ t.compare_suppliers_count }}</span>
         </div>
         <div class="table-wrap">
@@ -146,7 +146,7 @@
     {% for cat_name in category_order %}
     <section class="category-section">
         <div class="category-section-head">
-            <span class="category-section-name">{{ cat_name|cat(lang) }}</span>
+            <span class="category-section-name"><span class="material-icon"><svg class="material-icon-svg"><use href="#icon-{{ cat_name|icon }}"></use></svg></span>{{ cat_name|cat(lang) }}</span>
             <span class="category-section-count">{{ grouped[cat_name]|length }}</span>
         </div>
         {{ material_table(grouped[cat_name]) }}

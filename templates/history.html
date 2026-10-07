@@ -6,7 +6,7 @@
 
 <div class="history-head">
     <span class="category-tag">{{ supplier_name }}</span>
-    <h1>{{ material.name|matname(lang) }}</h1>
+    <h1><span class="material-icon material-icon-lg"><svg class="material-icon-svg"><use href="#icon-{{ material.name|icon }}"></use></svg></span>{{ material.name|matname(lang) }}</h1>
     <span class="muted">{{ t.unit_label }}: {{ material.unit }}{% if material.quantity is not none %} · {{ t.quantity_label }}: {{ "%.2f"|format(material.quantity) }}{% endif %}</span>
     {% if full_name and full_name != material.name %}
     <p class="muted full-name-line">{{ t.full_name_label }}: {{ full_name|matname(lang) }}</p>
