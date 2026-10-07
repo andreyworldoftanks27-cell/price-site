@@ -164,19 +164,18 @@
      вже є, щоб можна було одразу порівняти ціну. Заголовок (яка саме
      фраза — "нічого не знайдено" чи "ще варіанти") підміняється в JS
      залежно від того, чи є локальні збіги (visible > 0).
-     "externalLiveBlock" — кілька реальних цін з Епіцентру, якщо запит
-     співпав з одним із наперед заданих напрямків (EXTERNAL_LIVE_SOURCES
-     у main.py); "externalLinks" — прості посилання на кілька перевірених
-     джерел, показуються завжди. -->
+     "externalLiveContainer" — по одному блоку реальних цін НА КОЖЕН сайт,
+     що збігся з запитом (EXTERNAL_LIVE_SOURCES у main.py, може бути
+     кілька одразу); "externalLinks" — прості посилання на кілька
+     перевірених джерел, показуються завжди. -->
 <div class="external-search" id="externalSearchBlock" style="display:none">
     <p class="external-search-title" id="externalSearchTitle">{{ t.external_not_found }}</p>
-    <div class="external-live" id="externalLiveBlock" style="display:none">
-        <div class="external-live-head">
-            <span class="external-live-shop" id="externalLiveShop"></span>
-            <span class="muted">{{ t.external_live_note }}</span>
-        </div>
-        <div class="external-live-items" id="externalLiveItems"></div>
-    </div>
+    <!-- Раніше тут був ОДИН статичний блок "externalLiveBlock" на одне
+         джерело (Епіцентр). Запит може збігтися з кількома сайтами
+         одразу (напр. "цемент" — і Епіцентр, і Rozetka) — тому тепер JS
+         (renderExternalResults нижче) сам створює ПО ОДНОМУ такому блоку
+         НА КОЖНЕ джерело з data.sources і додає їх усі в цей контейнер. -->
+    <div class="external-live-container" id="externalLiveContainer"></div>
     <div class="compare-external" id="externalLinks"></div>
 </div>
 
@@ -292,47 +291,74 @@
             }, 500);
         }
 
+        // Раніше /live-search віддавав ОДНЕ джерело (data.shop/data.items),
+        // і тут був рівно один статичний блок під нього. Тепер сервер може
+        // знайти кілька сайтів одразу під один запит (data.sources —
+        // список) — тому сам блок під кожне джерело СТВОРЮЄТЬСЯ ТУТ, у JS,
+        // а не живе готовим у HTML. data.matched/data.shop/data.items
+        // (однина) сервер теж ще шле, для сумісності, але сторінка їх
+        // більше не читає.
+        function buildExternalLiveBlock(source) {
+            var block = document.createElement("div");
+            block.className = "external-live";
+
+            var head = document.createElement("div");
+            head.className = "external-live-head";
+            var shopName = document.createElement("span");
+            shopName.className = "external-live-shop";
+            shopName.textContent = source.shop;
+            var note = document.createElement("span");
+            note.className = "muted";
+            note.textContent = {{ t.external_live_note|tojson }};
+            head.appendChild(shopName);
+            head.appendChild(note);
+            block.appendChild(head);
+
+            var itemsBox = document.createElement("div");
+            itemsBox.className = "external-live-items";
+            source.items.forEach(function (it) {
+                // Кожен рядок — це посилання САМЕ на сторінку цього
+                // товару (it.url прийшов із сервера, /live-search), а не
+                // просто текст — відкривається в новій вкладці, так само
+                // як кнопки Prom.ua/Google Shopping нижче.
+                var row = document.createElement("a");
+                row.className = "external-live-item";
+                row.href = it.url;
+                row.target = "_blank";
+                row.rel = "noopener noreferrer";
+                var name = document.createElement("span");
+                name.textContent = it.name;
+                var price = document.createElement("span");
+                price.className = "external-live-price";
+                price.textContent = Number(it.price).toFixed(2) + " ₴";
+                row.appendChild(name);
+                row.appendChild(price);
+                itemsBox.appendChild(row);
+            });
+            var moreLink = document.createElement("a");
+            moreLink.href = source.shop_url;
+            moreLink.target = "_blank";
+            moreLink.rel = "noopener noreferrer";
+            moreLink.className = "external-live-more";
+            moreLink.textContent = EXTERNAL_MORE_LABEL + " ↗";
+            itemsBox.appendChild(moreLink);
+            block.appendChild(itemsBox);
+
+            return block;
+        }
+
         function renderExternalResults(data) {
-            var liveBlock = document.getElementById("externalLiveBlock");
-            var liveItems = document.getElementById("externalLiveItems");
-            var liveShop = document.getElementById("externalLiveShop");
+            var liveContainer = document.getElementById("externalLiveContainer");
             var linksBlock = document.getElementById("externalLinks");
 
-            liveItems.innerHTML = "";
+            liveContainer.innerHTML = "";
             linksBlock.innerHTML = "";
 
-            if (data.matched && data.items && data.items.length) {
-                liveShop.textContent = data.shop;
-                data.items.forEach(function (it) {
-                    // Кожен рядок — це посилання САМЕ на сторінку цього
-                    // товару (it.url прийшов із сервера, /live-search), а
-                    // не просто текст — відкривається в новій вкладці,
-                    // так само як кнопки Prom.ua/Google Shopping нижче.
-                    var row = document.createElement("a");
-                    row.className = "external-live-item";
-                    row.href = it.url;
-                    row.target = "_blank";
-                    row.rel = "noopener noreferrer";
-                    var name = document.createElement("span");
-                    name.textContent = it.name;
-                    var price = document.createElement("span");
-                    price.className = "external-live-price";
-                    price.textContent = Number(it.price).toFixed(2) + " ₴";
-                    row.appendChild(name);
-                    row.appendChild(price);
-                    liveItems.appendChild(row);
-                });
-                var moreLink = document.createElement("a");
-                moreLink.href = data.shop_url;
-                moreLink.target = "_blank";
-                moreLink.rel = "noopener noreferrer";
-                moreLink.className = "external-live-more";
-                moreLink.textContent = EXTERNAL_MORE_LABEL + " ↗";
-                liveItems.appendChild(moreLink);
-                liveBlock.style.display = "";
-            } else {
-                liveBlock.style.display = "none";
-            }
+            (data.sources || []).forEach(function (source) {
+                if (source.items && source.items.length) {
+                    liveContainer.appendChild(buildExternalLiveBlock(source));
+                }
+            });
 
             (data.links || []).forEach(function (link) {
                 var a = document.createElement("a");
