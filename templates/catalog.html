@@ -395,6 +395,8 @@
         var externalDebounceTimer = null;
         var lastExternalQuery = null;
         var EXTERNAL_MORE_LABEL = {{ t.external_view_all|tojson }};
+        var EXTERNAL_COLLAPSE_LABEL = {{ t.external_collapse|tojson }};
+        var EXTERNAL_VISIBLE_COUNT = 8;
         var EXTERNAL_NOT_FOUND_TITLE = {{ t.external_not_found|tojson }};
         var EXTERNAL_MORE_OPTIONS_TITLE = {{ t.external_more_options|tojson }};
 
@@ -431,9 +433,18 @@
 
             var head = document.createElement("div");
             head.className = "external-live-head";
-            var shopName = document.createElement("span");
+            // Раніше назва магазину була просто текстом, а перехід на
+            // сайт жив у кнопці "Переглянути всі" внизу. Користувач
+            // попросив, щоб ця кнопка натомість розгортала БІЛЬШИЙ список
+            // ПРЯМО тут (див. нижче) — тому перехід на сайт категорії
+            // (shop_url) переїхав сюди, на саму назву магазина (як
+            // звичайне посилання, відкривається в новій вкладці).
+            var shopName = document.createElement("a");
             shopName.className = "external-live-shop";
-            shopName.textContent = source.shop;
+            shopName.href = source.shop_url;
+            shopName.target = "_blank";
+            shopName.rel = "noopener noreferrer";
+            shopName.textContent = source.shop + " ↗";
             var note = document.createElement("span");
             note.className = "muted";
             note.textContent = {{ t.external_live_note|tojson }};
@@ -443,13 +454,22 @@
 
             var itemsBox = document.createElement("div");
             itemsBox.className = "external-live-items";
-            source.items.forEach(function (it) {
+            source.items.forEach(function (it, idx) {
                 // Кожен рядок — це посилання САМЕ на сторінку цього
                 // товару (it.url прийшов із сервера, /live-search), а не
                 // просто текст — відкривається в новій вкладці, так само
                 // як кнопки Prom.ua/Google Shopping нижче.
                 var row = document.createElement("a");
                 row.className = "external-live-item";
+                // Понад EXTERNAL_VISIBLE_COUNT (8) товарів сервер уже
+                // надіслав (до 20, _rank_live_items(limit=20) у main.py) —
+                // решта просто схована через клас, доки не натиснуть
+                // "Переглянути всі" нижче. Жодного додаткового запиту на
+                // сервер при розгортанні — дані вже тут.
+                if (idx >= EXTERNAL_VISIBLE_COUNT) {
+                    row.classList.add("external-live-item--extra");
+                    row.style.display = "none";
+                }
                 row.href = it.url;
                 row.target = "_blank";
                 row.rel = "noopener noreferrer";
@@ -462,13 +482,31 @@
                 row.appendChild(price);
                 itemsBox.appendChild(row);
             });
-            var moreLink = document.createElement("a");
-            moreLink.href = source.shop_url;
-            moreLink.target = "_blank";
-            moreLink.rel = "noopener noreferrer";
-            moreLink.className = "external-live-more";
-            moreLink.textContent = EXTERNAL_MORE_LABEL + " ↗";
-            itemsBox.appendChild(moreLink);
+
+            // Кнопка "Переглянути всі" — РАНІШЕ посилання на сайт
+            // категорії (<a href target=_blank>), користувач прямо
+            // попросив замінити на розгортання списку ПРЯМО тут, з
+            // можливістю одним же натисканням знову згорнути назад.
+            // Показуємо кнопку лише якщо є що розгортати (> 8 товарів) —
+            // інакше вона просто зайва.
+            if (source.items.length > EXTERNAL_VISIBLE_COUNT) {
+                var toggleBtn = document.createElement("button");
+                toggleBtn.type = "button";
+                toggleBtn.className = "external-live-more";
+                toggleBtn.textContent = EXTERNAL_MORE_LABEL + " ↓";
+                var expanded = false;
+                toggleBtn.addEventListener("click", function () {
+                    expanded = !expanded;
+                    var extraRows = itemsBox.querySelectorAll(".external-live-item--extra");
+                    extraRows.forEach(function (row) {
+                        row.style.display = expanded ? "" : "none";
+                    });
+                    toggleBtn.textContent = expanded
+                        ? EXTERNAL_COLLAPSE_LABEL + " ↑"
+                        : EXTERNAL_MORE_LABEL + " ↓";
+                });
+                itemsBox.appendChild(toggleBtn);
+            }
             block.appendChild(itemsBox);
 
             return block;
