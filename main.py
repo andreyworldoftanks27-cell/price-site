@@ -1,7 +1,8 @@
 from collections import defaultdict
 from datetime import date
 from io import BytesIO
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlparse
+import asyncio
 import hashlib
 import json
 import logging
@@ -179,18 +180,56 @@ templates.env.filters["cat"] = translate_category
 #     маленький список "запит → конкретна сторінка категорії Епіцентру",
 #     і якщо запит користувача співпадає з одним із них — підвантажуємо
 #     САМЕ ЦЮ сторінку (дозволено) і дістаємо з неї кілька реальних цін.
+#   - Rozetka (окремий піддомен build.rozetka.com.ua, саме для будматеріалів):
+#     той самий підхід — сторінки категорій, а не пошуку (їхній власний
+#     /search/ теж недоступний для перевірки й не використовується), звичайний
+#     серверний HTML (без потреби в JS, перевірено), robots.txt без
+#     бланкетної заборони на ці конкретні категорії. Структура посилань на
+#     товар у них ІНША за Епіцентр (".../p<ID>/" замість ".../shop/....html"),
+#     тому fetch_live_prices нижче приймає патерн посилання як параметр, а не
+#     жорстко закодований — щоб одна й та сама функція обслуговувала обидва
+#     сайти без копіювання коду.
 #
-# Текстовий розбір HTML Епіцентру — це найкрихкіша частина: я не маю змоги
-# з цього середовища відкрити їхню сторінку як звичайний браузер і подивитися
-# точні class-атрибути картки товару, тому розбір зроблено не по CSS-класах
-# (вони можуть бути вгадані неправильно), а по видимому ТЕКСТУ сторінки —
-# шукаємо рядки з ціною ("123.45 ₴") і беремо найближчий попередній рядок,
-# схожий на назву товару. Це грубіше, ніж розбір по точних класах, але не
-# ламається, якщо я вгадав клас неправильно — просто поверне порожній список,
-# сторінка каталогу від цього ніяк не постраждає. Перший реальний запуск на
-# справжньому сайті покаже, чи треба це підлаштувати.
-def _src(keywords, slug):
-    return {"keywords": keywords, "shop": "Епіцентр К", "url": f"https://epicentrk.ua/ua/shop/{slug}/"}
+# Текстовий розбір HTML — це найкрихкіша частина: я не маю змоги з цього
+# середовища відкрити ці сторінки як звичайний браузер і подивитися точні
+# class-атрибути картки товару, тому розбір зроблено не по CSS-класах (вони
+# можуть бути вгадані неправильно), а по видимому ТЕКСТУ сторінки — шукаємо
+# рядки з ціною ("123.45 ₴") і беремо найближчий попередній рядок, схожий на
+# назву товару. Це грубіше, ніж розбір по точних класах, але не ламається,
+# якщо я вгадав клас неправильно — просто поверне порожній список, сторінка
+# каталогу від цього ніяк не постраждає.
+#
+# Патерн посилання на сторінку товару — для кожного сайту свій (структура
+# URL різна), тому визначаємо обидва ТУТ, ще до списку EXTERNAL_LIVE_SOURCES
+# нижче (там вони одразу й використовуються).
+_EPICENTR_PRODUCT_HREF_RE = re.compile(r"/shop/[^\"'\s]+\.html")
+# Товар Rozetka: ".../ua/<слаг-або-id>/p<ID>/" (перевірено на реальних
+# сторінках категорій build.rozetka.com.ua) — ловимо будь-яке посилання, що
+# містить "/pNNNN" з необов'язковим завершальним слешем.
+_ROZETKA_PRODUCT_HREF_RE = re.compile(r"/p\d+(?:[/?#]|$)")
+
+
+def _src(keywords, slug, href_re=None):
+    return {
+        "keywords": keywords,
+        "shop": "Епіцентр К",
+        "url": f"https://epicentrk.ua/ua/shop/{slug}/",
+        "href_re": href_re or _EPICENTR_PRODUCT_HREF_RE,
+    }
+
+
+def _src_rozetka(keywords, path):
+    # path — ПОВНИЙ шлях сторінки категорії на build.rozetka.com.ua (разом
+    # зі слешами на початку й кінці), РІВНО такий, як підтверджено живим
+    # запитом до цієї сторінки — деякі категорії там з префіксом мови
+    # "ua/", деякі без нього, і префікс не уніфікований штучно саме щоб не
+    # повторити помилку з Hotline.ua (вигадана, а не перевірена адреса).
+    return {
+        "keywords": keywords,
+        "shop": "Rozetka (Будівництво)",
+        "url": f"https://build.rozetka.com.ua/{path}",
+        "href_re": _ROZETKA_PRODUCT_HREF_RE,
+    }
 
 
 # Розширений список — кожен slug перевірений через реальний запит до сторінки
@@ -198,7 +237,7 @@ def _src(keywords, slug):
 # (вигадана адреса, яка виявилась нечинною). Раніше тут було лише 7 вузьких
 # категорій ("клей" означав тільки плитковий клей) — звідси й скарга, що
 # "клей пва" нічого не знаходив: такої категорії просто не було в списку.
-# Тепер категорій суттєво більше, і сам пошук (нижче, find_live_source)
+# Тепер категорій суттєво більше, і сам пошук (нижче, find_live_sources)
 # працює по ОКРЕМИХ СЛОВАХ запиту, а не по цілій фразі — тому "клей пва"
 # саме завдяки слову "пва" потрапить у вужчу, правильнішу категорію, а не
 # в загальну "клей".
@@ -246,6 +285,40 @@ EXTERNAL_LIVE_SOURCES = [
     _src(["osb", "осб", "осб плита", "осб-плита"], "osb-plity"),
     _src(["фанера"], "fanera"),
     _src(["дсп", "двп", "ламінована дсп", "ламинированная дсп"], "dsp-i-dvp"),
+
+    # --- Rozetka (build.rozetka.com.ua) — другий сайт, окремий від
+    # Епіцентру, додано для (1) закриття конкретної прогалини "труби"
+    # (такої категорії в Епіцентрі не було взагалі — звідси й скарга
+    # користувача на 0 результатів) та (2) щоб запит, що збігається з
+    # кількома джерелами одразу (напр. "цемент" — є і в Епіцентрі, і тут),
+    # показував ціни з ОБОХ сайтів одночасно (див. find_live_sources і
+    # /live-search нижче). Кожен URL і зразок товарів нижче перевірено
+    # живим запитом до сторінки категорії (не вигадано) — так само, як і
+    # всі зразки Епіцентру вище.
+    _src_rozetka(
+        ["труба водопровідна", "труби водопровідні", "водопровідна труба", "трубы водопроводные", "труба для води"],
+        "ua/trubi-vodoprovodnie/c4629746/",
+    ),
+    _src_rozetka(
+        ["труба каналізаційна", "труби каналізаційні", "каналізаційна труба", "трубы канализационные", "труба для каналізації"],
+        "ua/trubi-kanalizatsionnie/c4629758/",
+    ),
+    _src_rozetka(
+        ["ізоляція труб", "утеплення труб", "утеплювач для труб", "изоляция труб", "утепление труб", "теплоізол"],
+        "ua/izolyatsiya-trub/c4629794/",
+    ),
+    _src_rozetka(
+        [
+            "металева труба", "труба металева", "труба стальна", "сталева труба", "труба нержавіюча",
+            "металлическая труба", "труба металлическая", "трубний прокат", "трубный прокат",
+        ],
+        "ua/trubniy-prokat/c4639616/",
+    ),
+    _src_rozetka(
+        ["сантехніка", "сантехника", "фітинги", "фитинги", "муфта трубна", "труба з фітингом"],
+        "ua/ingenernaya-santehnika/c4629728/",
+    ),
+    _src_rozetka(["цемент"], "tsement/c4640088/"),
 ]
 
 # Прості посилання-переходи — завжди показуються поряд із "живими" цінами
@@ -272,6 +345,18 @@ EXTERNAL_LINK_SOURCES = [
     {"name": "Hotline.ua", "url": "https://www.google.com/search?q=site:hotline.ua+{q}"},
     {"name": "E-Katalog", "url": "https://www.google.com/search?q=site:ek.ua+{q}"},
     {"name": "Епіцентр К", "url": "https://www.google.com/search?q=site:epicentrk.ua+{q}"},
+    # Rozetka (build.rozetka.com.ua): власний /search/ прямо заборонений
+    # robots.txt цього піддомену (перевірено живим запитом, не вигадано) —
+    # тому, як і для Hotline.ua/E-Katalog/Епіцентру вище, ведемо через
+    # Google "site:" замість вгадування параметра рідного пошуку.
+    {"name": "Rozetka", "url": "https://www.google.com/search?q=site:rozetka.com.ua+{q}"},
+    # Vista.ua: реальний, діючий магазин будматеріалів (перевірено живим
+    # запитом до головної сторінки), але сторінки категорій у них
+    # JS-рендерені (не серверний HTML) — тому "живих" цін із нього нема
+    # (як і з Hotline.ua, той самий клас проблеми), лише посилання-перехід,
+    # і знову через Google "site:", бо рідний пошуковий параметр теж не
+    # вдалося підтвердити з цього середовища.
+    {"name": "Vista.ua", "url": "https://www.google.com/search?q=site:vista.ua+{q}"},
     {"name": "Google Shopping", "url": "https://www.google.com/search?tbm=shop&q={q}"},
 ]
 
@@ -304,22 +389,20 @@ _EPICENTR_NOISE_LINES = {
 # усі інші умови (достатньо довгий, є літери) і помилково приймався за назву
 # найближчого товару замість справжньої назви рядком вище.
 _RATING_LINE_RE = re.compile(r"^\d+([.,]\d+)?\s*\(\s*\d+")
-# Сторінки окремого товару в Епіцентрі виглядають як "/ua/shop/....html"
-# (на відміну від сторінок КАТЕГОРІЙ — ті без ".html" на кінці, напр.
-# "/ua/shop/kley-dlya-plitki/") — перевірено на реальних посиланнях з
-# результатів пошуку Google на їхній сайт.
-# Було жорстко "/ua/shop/<слаг-без-слешів>.html" — логи з продакшну
+# Патерн посилання на товар Епіцентру (_EPICENTR_PRODUCT_HREF_RE) і Rozetka
+# (_ROZETKA_PRODUCT_HREF_RE) визначені вище, разом із _src()/_src_rozetka() —
+# обидва передаються в fetch_live_prices() нижче як параметр href_re, а не
+# жорстко закодовані тут, саме щоб одна функція обслуговувала всі сайти.
+#
+# "/ua/shop/....html" — сторінка ТОВАРУ Епіцентру (на відміну від сторінок
+# КАТЕГОРІЙ — ті без ".html" на кінці, напр. "/ua/shop/kley-dlya-plitki/") —
+# перевірено на реальних посиланнях з результатів пошуку Google на їхній
+# сайт. Було жорстко "/ua/shop/<слаг-без-слешів>.html" — логи з продакшну
 # показали, що сторінка реально вантажиться (сотні КБ, Nuxt SSR), але під
-# цей шаблон не підійшло ЖОДНЕ посилання. Послаблюємо до будь-якого
-# href, що містить "/shop/" і закінчується на ".html" — без прив'язки
-# до "/ua/" на початку і без заборони додаткових слешів усередині слага
-# (на випадок вкладених шляхів типу /ua/shop/catalog/...).
-_EPICENTR_PRODUCT_HREF_RE = re.compile(r"/shop/[^\"'\s]+\.html")
-# Резервний, ще ширший патерн — лише ".html" після "epicentrk.ua" чи на
-# початку відносного шляху. Використовується ТІЛЬКИ для діагностики
-# (логування прикладів href), щоб наступного разу відразу підібрати
-# правильний основний патерн, не ганяючи деплой по колу.
-_EPICENTR_ANY_HTML_HREF_RE = re.compile(r"\.html(?:[?#]|$)")
+# цей шаблон не підійшло ЖОДНЕ посилання. Послаблено до будь-якого href, що
+# містить "/shop/" і закінчується на ".html" — без прив'язки до "/ua/" на
+# початку і без заборони додаткових слешів усередині слага (на випадок
+# вкладених шляхів типу /ua/shop/catalog/...).
 
 
 def _find_card_root(anchor, href_re, max_levels: int = 8):
@@ -359,13 +442,20 @@ def _find_card_root(anchor, href_re, max_levels: int = 8):
     return best
 
 
-async def fetch_live_prices(url: str, limit: int = 5) -> list[dict]:
+async def fetch_live_prices(url: str, limit: int = 5, href_re=None) -> list[dict]:
     """
     Тягне кілька реальних товарів (назва + ціна + ПОСИЛАННЯ на саму
-    сторінку товару) зі сторінки КАТЕГОРІЇ Епіцентру (не пошуку — дивись
-    пояснення вище). Повертає [] при БУДЬ-ЯКІЙ проблемі (мережа, таймаут,
-    несподівана розмітка) — виклик цієї функції НІКОЛИ не повинен зламати
-    сторінку каталогу чи навіть просто сповільнити її надовго.
+    сторінку товару) зі сторінки КАТЕГОРІЇ (не пошуку — дивись пояснення
+    вище) будь-якого з джерел у EXTERNAL_LIVE_SOURCES. Повертає [] при
+    БУДЬ-ЯКІЙ проблемі (мережа, таймаут, несподівана розмітка) — виклик цієї
+    функції НІКОЛИ не повинен зламати сторінку каталогу чи навіть просто
+    сповільнити її надовго.
+
+    href_re — патерн посилання на сторінку ТОВАРУ, свій для кожного сайту
+    (структура URL різна: Епіцентр — ".../shop/....html", Rozetka —
+    ".../pNNNN/"), тому ЦЯ функція більше не прив'язана до одного сайту:
+    заклик без href_re лишається сумісним зі старими викликами (підставляє
+    патерн Епіцентру за замовчуванням).
 
     Товар без знайденого посилання НЕ включаємо в результат узагалі —
     людині потрібно саме клікабельне посилання на конкретний товар, а не
@@ -373,6 +463,8 @@ async def fetch_live_prices(url: str, limit: int = 5) -> list[dict]:
     без прив'язки до HTML-посилань і тому не знала справжньої адреси
     товару — це і було виправлено тут).
     """
+    href_re = href_re or _EPICENTR_PRODUCT_HREF_RE
+
     cached = _EXTERNAL_PRICE_CACHE.get(url)
     if cached and (time.time() - cached[0]) < _EXTERNAL_PRICE_CACHE_TTL:
         return cached[1]
@@ -380,6 +472,10 @@ async def fetch_live_prices(url: str, limit: int = 5) -> list[dict]:
     # Заголовки, схожі на звичайний браузер — лише User-Agent (як було
     # раніше) для деяких сайтів є ознакою бота сам по собі: немає
     # Accept/Accept-Language/Referer, які завжди шле справжній браузер.
+    # Referer — головна сторінка ТОГО Ж САМОГО сайту (а не завжди
+    # epicentrk.ua, як було раніше, коли функція обслуговувала лише один
+    # сайт) — беремо з домену запитуваного url.
+    parsed_url = urlparse(url)
     request_headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -387,7 +483,7 @@ async def fetch_live_prices(url: str, limit: int = 5) -> list[dict]:
         ),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "uk-UA,uk;q=0.9,ru;q=0.8,en;q=0.7",
-        "Referer": "https://epicentrk.ua/",
+        "Referer": f"{parsed_url.scheme}://{parsed_url.netloc}/",
     }
 
     html = None
@@ -424,27 +520,27 @@ async def fetch_live_prices(url: str, limit: int = 5) -> list[dict]:
         for tag in soup(["script", "style", "noscript"]):
             tag.decompose()
 
-        product_links = soup.find_all("a", href=_EPICENTR_PRODUCT_HREF_RE)
+        product_links = soup.find_all("a", href=href_re)
         if not product_links:
             # 200 OK, але жодного посилання на товар не знайдено під наш
-            # патерн. Перш ніж здаватися — пробуємо ширший діагностичний
-            # патерн (будь-яке посилання, що закінчується на .html) і
-            # логуємо кілька РЕАЛЬНИХ href з продакшну: це дасть точний
-            # формат посилань Епіцентру, замість гри в угадайку з цієї
-            # пісочниці (де прямий доступ до сайту заблокований мережевою
-            # політикою, тому побачити живу розмітку інакше не вийде).
-            fallback_links = soup.find_all("a", href=_EPICENTR_ANY_HTML_HREF_RE)
+            # патерн. Перш ніж здаватися — логуємо кілька РЕАЛЬНИХ href з
+            # продакшну (будь-які посилання на сторінці, не лише ті, що
+            # підійшли під href_re): це дасть точний формат посилань ЦЬОГО
+            # сайту, замість гри в угадайку з цієї пісочниці (де прямий
+            # доступ до сайту заблокований мережевою політикою, тому
+            # побачити живу розмітку інакше не вийде).
+            all_links = soup.find_all("a", href=True)
             sample_hrefs = []
-            for a in fallback_links:
+            for a in all_links:
                 h = a.get("href") or ""
                 if h and h not in sample_hrefs:
                     sample_hrefs.append(h)
                 if len(sample_hrefs) >= 8:
                     break
             logger.warning(
-                "live-price: 0 product links on %s (body %d bytes). "
-                "Fallback *.html links found: %d, sample: %r",
-                url, len(html), len(fallback_links), sample_hrefs,
+                "live-price: 0 product links on %s (body %d bytes, href_re=%s). "
+                "Sample of all hrefs found: %d, sample: %r",
+                url, len(html), href_re.pattern, len(all_links), sample_hrefs,
             )
         seen_urls = set()
         debug_first_card = None  # для логу, якщо знову 0 результатів
@@ -456,7 +552,7 @@ async def fetch_live_prices(url: str, limit: int = 5) -> list[dict]:
             if product_url in seen_urls:
                 continue
 
-            card = _find_card_root(link, _EPICENTR_PRODUCT_HREF_RE)
+            card = _find_card_root(link, href_re)
             card_text = card.get_text("\n")
             card_lines = [ln.strip() for ln in card_text.split("\n") if ln.strip()]
             # Число ціни і сам символ "₴" на реальних сайтах дуже часто
@@ -589,23 +685,29 @@ def _words_match(a: str, b: str) -> bool:
     return longer.startswith(shorter)
 
 
-def find_live_source(query: str):
+def find_live_sources(query: str, max_results: int = 3) -> list[dict]:
     """
-    Було: порівняння ЦІЛОЮ ФРАЗОЮ (підрядок в один чи інший бік) — тому
-    двослівний запит на кшталт "клей пва" не знаходив НІЧОГО, бо жодна з
-    curated-фраз не збігалася і не містила його цілком. Тепер порівнюємо
-    ПО ОКРЕМИХ СЛОВАХ: рахуємо, скільки слів запиту знайшли відповідник
-    серед слів ключових фраз категорії, і обираємо категорію з НАЙБІЛЬШИМ
-    числом збігів (а не першу-ліпшу) — так "клей пва" попаде саме в
-    категорію "Клей ПВА" (2 збіги: клей + пва), а не в загальний
-    "Клей для плитки" (1 збіг: лише клей).
+    Було: find_live_source (однина) повертав ЛИШЕ ОДНЕ, найкраще за
+    рахунком, джерело — тому якщо запит однаково добре підходив під
+    кілька сайтів одразу (наприклад "цемент" — є і в Епіцентрі, і в
+    Rozetka, див. EXTERNAL_LIVE_SOURCES), користувач бачив ціну лише з
+    ОДНОГО з них. Користувач прямо попросив показувати варіанти "як в
+    Епіцентрі, так і в усіх інших можливих сайтах" одразу — тому тепер
+    повертаємо до max_results джерел із НАЙВИЩИМ рахунком (score > 0),
+    а не єдине найкраще, і /live-search нижче запитує ціни з КОЖНОГО з
+    них паралельно.
+
+    Порівняння — ПО ОКРЕМИХ СЛОВАХ (а не цілою фразою підрядком): рахуємо,
+    скільки слів запиту знайшли відповідник серед слів ключових фраз
+    категорії. Було: порівняння цілою фразою — тому двослівний запит типу
+    "клей пва" не знаходив НІЧОГО, бо жодна curated-фраза не збігалася і
+    не містила його цілком.
     """
     q_words = _tokenize_query(query)
     if not q_words:
-        return None
+        return []
 
-    best_entry = None
-    best_score = 0
+    scored = []
     for entry in EXTERNAL_LIVE_SOURCES:
         entry_words = entry.get("_kw_words")
         if entry_words is None:
@@ -614,10 +716,14 @@ def find_live_source(query: str):
                 entry_words.update(_tokenize_query(kw))
             entry["_kw_words"] = entry_words
         score = sum(1 for qw in q_words if any(_words_match(qw, ew) for ew in entry_words))
-        if score > best_score:
-            best_score = score
-            best_entry = entry
-    return best_entry
+        if score > 0:
+            scored.append((score, entry))
+
+    # Стабільне сортування за рахунком, найкращі спочатку; порядок рівних
+    # за рахунком лишається таким, як у EXTERNAL_LIVE_SOURCES (sort у
+    # Python — стабільний), тобто за порядком оголошення в списку вище.
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [entry for _score, entry in scored[:max_results]]
 
 
 # Названия товаров, в отличие от категорий, приходят из прайсов поставщиков
@@ -1278,10 +1384,19 @@ async def export_catalog(
 @app.get("/live-search")
 async def live_search(request: Request, q: str = ""):
     """
-    Викликається з каталогу через fetch() у JS, коли пошук по нашій базі
-    нічого не знайшов — див. EXTERNAL_LIVE_SOURCES вище для пояснення, чому
-    "живі" ціни є лише для невеликого заданого списку запитів (Епіцентр К),
-    а для решти повертаються тільки посилання для переходу.
+    Викликається з каталогу через fetch() у JS за будь-яким достатньо
+    довгим запитом (не лише коли пошук по нашій базі нічого не знайшов) —
+    див. EXTERNAL_LIVE_SOURCES вище для пояснення, чому "живі" ціни є лише
+    для невеликого заданого списку запитів, а для решти повертаються
+    тільки посилання для переходу.
+
+    Відповідь тепер віддає "sources" — СПИСОК (а не одне "shop"/"items"),
+    бо на один запит може відповідати кілька сайтів одразу (наприклад
+    "цемент" — і Епіцентр, і Rozetka) і користувач прямо попросив бачити
+    варіанти з усіх них, а не лише з одного найкращого. Запити до кожного
+    знайденого джерела йдуть ПАРАЛЕЛЬНО (asyncio.gather) — по одному на
+    кожен сайт — щоб кілька збігів не збільшували час відповіді в кілька
+    разів порівняно з одним.
     """
     if not require_login(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -1292,18 +1407,32 @@ async def live_search(request: Request, q: str = ""):
         for src in EXTERNAL_LINK_SOURCES
     ]
     if not q:
-        return JSONResponse({"matched": False, "links": links, "items": []})
+        return JSONResponse({"matched": False, "sources": [], "links": links, "items": []})
 
-    entry = find_live_source(q)
-    if not entry:
-        return JSONResponse({"matched": False, "links": links, "items": []})
+    entries = find_live_sources(q)
+    if not entries:
+        return JSONResponse({"matched": False, "sources": [], "links": links, "items": []})
 
-    items = await fetch_live_prices(entry["url"])
+    items_per_entry = await asyncio.gather(
+        *(fetch_live_prices(entry["url"], href_re=entry.get("href_re")) for entry in entries)
+    )
+    sources = [
+        {"shop": entry["shop"], "shop_url": entry["url"], "items": items}
+        for entry, items in zip(entries, items_per_entry)
+        if items  # джерело, де зараз 0 товарів знайдено — просто не показуємо окремим блоком
+    ]
+
+    # "matched"/"shop"/"shop_url"/"items" (однина) лишаємо поряд із новим
+    # "sources" (множина) — це дублює перше джерело зі списку sources —
+    # щоб не зламати зовнішніх споживачів цього JSON, якщо такі з'являться
+    # (сама сторінка каталогу вже перейшла на sources, див. catalog.html).
+    first = sources[0] if sources else None
     return JSONResponse({
-        "matched": True,
-        "shop": entry["shop"],
-        "shop_url": entry["url"],
-        "items": items,
+        "matched": bool(sources),
+        "shop": first["shop"] if first else None,
+        "shop_url": first["shop_url"] if first else None,
+        "items": first["items"] if first else [],
+        "sources": sources,
         "links": links,
     })
 
