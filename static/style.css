@@ -497,7 +497,17 @@ mark {
     gap: 10px;
     margin-bottom: 8px;
 }
-.external-live-shop { font-weight: 700; font-size: 14.5px; }
+/* Раніше просто <span> (текст), тепер <a href=shop_url> (перехід на сайт
+   переїхав сюди з кнопки "Переглянути всі" нижче, яка тепер розгортає
+   список ПРЯМО тут, а не веде на чужий сайт) — тому прибираємо типове
+   підкреслення/синій колір посилання, залишаючи вигляд як був. */
+.external-live-shop {
+    font-weight: 700;
+    font-size: 14.5px;
+    color: var(--text);
+    text-decoration: none;
+}
+.external-live-shop:hover { text-decoration: underline; }
 /* Раніше це був просто <div> (нередаговане текстове "превью") — тепер
    /live-search повертає ще й справжнє посилання на сторінку товару
    (it.url), і сам рядок у catalog.html — це вже <a>, тому прибираємо
@@ -520,12 +530,21 @@ mark {
 .external-live-item:hover { background: var(--surface-hover); }
 .external-live-item:last-of-type { border-bottom: none; }
 .external-live-price { font-weight: 700; font-family: 'IBM Plex Mono', monospace; white-space: nowrap; }
+/* Раніше <a href=shop_url target=_blank> (перехід на чужий сайт), тепер
+   <button> — розгортає/згортає вже завантажені товари ПРЯМО тут (див.
+   catalog.html, buildExternalLiveBlock) — тому скидаємо типові
+   border/background/padding кнопки, щоб вигляд лишився таким самим. */
 .external-live-more {
     display: inline-block;
     margin-top: 10px;
+    padding: 0;
+    border: none;
+    background: none;
     color: var(--text-muted);
     text-decoration: none;
     font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
 }
 .external-live-more:hover { color: var(--text); }
 
