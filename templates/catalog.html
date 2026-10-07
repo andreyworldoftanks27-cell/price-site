@@ -242,21 +242,16 @@
             return q.toLowerCase().match(/[a-zа-яіїєґ]+|\d+/g) || [];
         }
 
-        // Скільки токенів запиту знайшлося в розширеному data-search рядку
-        // цього товару (data-search тепер — не лише назва й категорія двома
-        // мовами, а й англійські синоніми поширених термінів та кириличні
-        // варіанти написання відомих брендів, див. build_search_blob у
-        // main.py). Для слів довших за 4 літери додатково пробуємо варіант
-        // БЕЗ останньої літери — ловить більшість відмінкових закінчень
-        // ("труби" на додачу до вже наявного "труба").
-        function rowScore(row, qTokens) {
-            var blob = row.dataset.search;
-            var matched = 0;
-            qTokens.forEach(function (tok) {
-                if (blob.indexOf(tok) !== -1) { matched++; return; }
-                if (tok.length > 4 && blob.indexOf(tok.slice(0, -1)) !== -1) matched++;
-            });
-            return matched;
+        // Перевіряє один токен проти data-search рядка товару (він тепер —
+        // не лише назва й категорія двома мовами, а й англійські синоніми
+        // поширених термінів та кириличні варіанти написання відомих
+        // брендів, див. build_search_blob у main.py). Для слів довших за 4
+        // літери додатково пробуємо варіант БЕЗ останньої літери — ловить
+        // більшість відмінкових закінчень ("труби" на додачу до вже
+        // наявного "труба").
+        function tokenHits(blob, tok) {
+            if (blob.indexOf(tok) !== -1) return true;
+            return tok.length > 4 && blob.indexOf(tok.slice(0, -1)) !== -1;
         }
 
         // Поиск по тексту — теперь ЦЕЛИКОМ на клиенте (сервер больше не
@@ -270,23 +265,50 @@
         // она вызывается и на каждую правку поля, и один раз сразу при
         // загрузке страницы (на случай, если поле пришло уже заполненным).
         //
-        // РАНІШЕ тут вимагався буквальний збіг ВСІЄЇ фрази цілком в одному
-        // рядку — тому багатослівний запит на кшталт "cement 117" не
-        // знаходив НІЧОГО (ніде буквально немає підрядка "cement 117"), а
-        // запит іншою мовою/скриптом ("pipe" замість "труба", "церезит"
-        // замість "CERESIT") не знаходив теж нічого, навіть коли потрібний
-        // товар реально є в базі. Тепер замість "вся фраза підрядком"
-        // рахується ЧАСТКА токенів запиту, що знайшлися (rowScore вище) —
-        // для одного токена потрібен він сам, для кількох досить, щоб
-        // знайшлася БІЛЬШІСТЬ (не обов'язково всі — щоб "cement 117" все
-        // одно знаходив "CM 117", навіть якщо саме слово "cement" ніде
-        // буквально не зустрічається, а числовий токен "117" — знаходить).
-        // Видимі рядки сортуються за кількістю збігів (найкращі — зверху),
-        // а не лишаються в порядку списку.
+        // РАНІШЕ (перша версія цього фікса) тут рахувалась ЧАСТКА будь-яких
+        // токенів, що знайшлися — і для двослівного запиту досить було
+        // ОДНОГО з двох. Це зламалось на реальному прикладі: "труба 25" —
+        // слово "труба" НЕ знаходилось у стяжках для підлоги взагалі, але
+        // число "25" (вага мішка, дуже часте й ні про що не каже саме по
+        // собі) знаходилось майже скрізь — і 198 геть не пов'язаних товарів
+        // пролазили в видачу лише через це число, ховаючи сам факт, що
+        // труб у нас просто нема (а зовнішній пошук унизу сторінки це й
+        // показував би чесно).
+        //
+        // Правильне правило: СЛОВА (а не числа) несуть основний сенс
+        // запиту — тому ВСІ словесні токени мають знайтися (включно з
+        // англійськими/кириличними синонімами в blob), інакше рядок не
+        // підходить. Числові токени — уточнення (типорозмір, артикул):
+        // якщо в запиті є хоч одне слово, числа лише піднімають у
+        // рейтингу знайдені рядки, не є обов'язковими самі по собі. Якщо ж
+        // запит — ЦІЛКОМ із чисел/кодів (без жодного слова, напр. просто
+        // "25" чи "117 5"), то вже вони стають обов'язковими — це явно
+        // пошук за артикулом/типорозміром.
+        function rowMatches(blob, words, nums) {
+            for (var i = 0; i < words.length; i++) {
+                if (!tokenHits(blob, words[i])) return false;
+            }
+            if (!words.length && nums.length) {
+                for (var j = 0; j < nums.length; j++) {
+                    if (!tokenHits(blob, nums[j])) return false;
+                }
+            }
+            return true;
+        }
+
+        function rowRank(blob, nums) {
+            // Лише для сортування серед уже підходящих рядків — скільки
+            // додаткових числових уточнень (типорозмір тощо) збіглося.
+            var n = 0;
+            nums.forEach(function (tok) { if (tokenHits(blob, tok)) n++; });
+            return n;
+        }
+
         function applyFilter() {
             var rawQuery = input.value.trim().toLowerCase();
             var qTokens = tokenizeQuery(rawQuery);
-            var required = qTokens.length <= 1 ? qTokens.length : Math.ceil(qTokens.length / 2);
+            var words = qTokens.filter(function (t) { return !/^\d+$/.test(t); });
+            var nums = qTokens.filter(function (t) { return /^\d+$/.test(t); });
             var visible = 0;
 
             tbodyRows.forEach(function (group) {
@@ -301,15 +323,16 @@
                     return;
                 }
                 var scored = group.rows.map(function (row) {
-                    return { row: row, score: rowScore(row, qTokens) };
+                    var blob = row.dataset.search;
+                    var match = rowMatches(blob, words, nums);
+                    return { row: row, match: match, rank: match ? rowRank(blob, nums) : -1 };
                 });
-                scored.sort(function (a, b) { return b.score - a.score; });
+                scored.sort(function (a, b) { return b.rank - a.rank; });
                 scored.forEach(function (item) {
-                    var match = item.score >= required;
-                    item.row.style.display = match ? "" : "none";
-                    if (match) visible++;
+                    item.row.style.display = item.match ? "" : "none";
+                    if (item.match) visible++;
                     var nameCell = item.row.querySelector(".name-text");
-                    if (nameCell) highlight(nameCell, match ? qTokens : null);
+                    if (nameCell) highlight(nameCell, item.match ? qTokens : null);
                     // Переносимо в новому порядку: найкращі збіги зверху
                     // кожної секції/таблиці; невидимі теж переносяться (їхнє
                     // точне місце не важливо, вони все одно display:none).
