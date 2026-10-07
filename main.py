@@ -424,6 +424,16 @@ EXTERNAL_LINK_SOURCES = [
 _EXTERNAL_PRICE_CACHE: dict[str, tuple[float, list]] = {}
 _EXTERNAL_PRICE_CACHE_TTL = 60 * 60  # година — не дзвонимо на чужий сайт при кожному чиху
 
+# Діагностика зовнішнього пошуку (/diagnostics) — чому ЦЕ окремо від кешу
+# вище: кеш лише "останній РЕЗУЛЬТАТ" (список товарів), і НЕ розрізняє
+# "сайт відповів, але на сторінці 0 схожих товарів" від "сайт заблокував
+# запит" від "розмітку сторінки знову змінили" — а саме ЦЕ розрізнення
+# довелось вручну випрошувати з логів Railway по колу весь цей час (напр.
+# досі не розв'язана загадка з Rozetka, що в проді віддає 0 товарів).
+# Записується на КОЖЕН реальний (не закешований) виклик fetch_live_prices,
+# і сторінка /diagnostics читає це напряму — без потреби лізти в логи.
+_EXTERNAL_PRICE_DIAGNOSTICS: dict[str, dict] = {}
+
 # Бейдж "скільки зекономили" виглядає як "-245.26 ₴" — та сама форма, що
 # й справжня ціна, тільки зі знаком мінус попереду (а відсоток знижки —
 # "-27%"). Простий negative lookbehind перед числом це не рятує: якщо
@@ -568,30 +578,40 @@ async def fetch_live_prices(url: str, limit: int = 8, href_re=None, scan_limit: 
 
     html = None
     last_error = None
-    # Дві спроби з різним тайм-аутом: якщо сайт просто повільний (а не
-    # заблокував нас) — перша спроба з 6с таймаутом може не встигнути,
-    # друга з 15с майже напевно встигне. Якщо обидві падають — це вже
-    # скоріш за все не "повільно", а мережева блокування/помилка.
-    for attempt, timeout_s in enumerate((6.0, 15.0), start=1):
-        try:
-            async with httpx.AsyncClient(
-                timeout=timeout_s,
-                headers=request_headers,
-                follow_redirects=True,
-            ) as client:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                html = resp.text
-            break
-        except Exception as exc:
-            last_error = exc
-            continue
+    # РАНІШЕ тут було дві послідовні спроби (6с, потім 15с), якщо перша не
+    # встигала. Користувач поскаржився, що пошук займає 8-10 секунд — і це
+    # саме причина: сайт, що стабільно відповідає, скажімо, за 7-8с (повільний,
+    # але не заблокований), ВИТРАЧАВ 6с на невдалу першу спробу, а потім ще
+    # кілька секунд на другу — разом саме ті 8-10+с. Одна спроба з розумним
+    # тайм-аутом (8с) прибирає цю "подвійну сплату" і для caller'а (/live-search,
+    # уже й так опитує кілька джерел ПАРАЛЕЛЬНО через asyncio.gather) означає
+    # передбачуваний максимум ~8с на запит замість непередбачуваних ~21с.
+    try:
+        async with httpx.AsyncClient(
+            timeout=8.0,
+            headers=request_headers,
+            follow_redirects=True,
+        ) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            html = resp.text
+    except Exception as exc:
+        last_error = exc
 
     if html is None:
         logger.warning(
             "live-price fetch failed for %s after retries: %r", url, last_error
         )
         _EXTERNAL_PRICE_CACHE[url] = (time.time(), [])
+        _EXTERNAL_PRICE_DIAGNOSTICS[url] = {
+            "checked_at": time.time(),
+            "items_found": 0,
+            "links_found": 0,
+            "status": "fetch_error",
+            "error": repr(last_error),
+            "debug_first_card": None,
+            "sample_hrefs": None,
+        }
         return []
 
     results = []
@@ -733,9 +753,32 @@ async def fetch_live_prices(url: str, limit: int = 8, href_re=None, scan_limit: 
                 "(price/name parsing likely out of date). First card debug: %r",
                 len(product_links), url, debug_first_card,
             )
-    except Exception:
+
+        _EXTERNAL_PRICE_DIAGNOSTICS[url] = {
+            "checked_at": time.time(),
+            "items_found": len(results),
+            "links_found": len(product_links),
+            "status": (
+                "ok" if results
+                else "no_links" if not product_links
+                else "parse_zero"
+            ),
+            "error": None,
+            "debug_first_card": debug_first_card if not results and product_links else None,
+            "sample_hrefs": sample_hrefs if not product_links else None,
+        }
+    except Exception as exc:
         logger.exception("live-price: unexpected parsing error for %s", url)
         results = []
+        _EXTERNAL_PRICE_DIAGNOSTICS[url] = {
+            "checked_at": time.time(),
+            "items_found": 0,
+            "links_found": 0,
+            "status": "parse_error",
+            "error": repr(exc),
+            "debug_first_card": None,
+            "sample_hrefs": None,
+        }
 
     _EXTERNAL_PRICE_CACHE[url] = (time.time(), results)
     return results
@@ -1096,6 +1139,115 @@ def material_icon_key(name: str) -> str:
 
 
 templates.env.filters["icon"] = material_icon_key
+
+# ---------------------------------------------------------------------------
+# Розширений пошуковий "blob" для картки товару (data-search у catalog.html).
+#
+# Користувач поскаржився: пошук на сайті рахує лише ТОЧНИЙ збіг усієї фрази
+# (один indexOf() на клієнті) і лише тією мовою/скриптом, якою написана назва
+# в базі — тому "cement 117" не знаходив "CERESIT CM 117/5" (слово "cement"
+# ніде буквально не зустрічається в базі), а запит англійською ("pipe") не
+# знаходив українську "труба". І ще й займало 8-10с, бо при 0 локальних
+# збігів сторінка одразу й довго чекала зовнішній пошук (окрема причина,
+# виправлена нижче, у fetch_live_prices).
+#
+# Рішення тут — НЕ переписувати сам пошук на сервер (клієнтський варіант —
+# свідоме рішення з явних причин, див. коментар над applyFilter() у
+# catalog.html), а зробити сам data-search набагато ширшим: додати в нього
+# ЗАЗДАЛЕГІДЬ, ще на сервері, один раз на рендер сторінки (а не на кожне
+# натискання клавіші в браузері):
+#   1) англійські синоніми поширених будівельних термінів (труба -> pipe,
+#      цемент -> cement, ...) — через EN_SEARCH_SYNONYMS, побудований з тих
+#      самих _ICON_RULES, що й іконки категорій (одне джерело правди, а не
+#      другий окремий список тих самих слів);
+#   2) кириличні "побутові" варіанти написання відомих латинських брендів
+#      (Ceresit -> церезит/церезіт тощо) — BRAND_ALIASES. Це НЕ автоматична
+#      транслітерація літера-в-літеру (для реальних назв брендів вона
+#      частіше помиляється, ніж допомагає — "Ceresit" так дало б "Кересіт",
+#      а не "Церезит"), а невеликий вручну зібраний список, як і
+#      MATNAME_WORD_RU вище — поповнюється по мірі потреби.
+# Сам клієнтський JS (applyFilter у catalog.html) тепер теж розумніший:
+# розбиває запит на окремі токени (слова й числа — окремо, щоб "cm117" так
+# само знаходив "CM 117/5", як і "cm 117") і рахує, яка ЧАСТКА токенів
+# знайшлась у data-search, а не вимагає збігу всієї фрази цілком — це і є
+# відповідь на "є купа розновидностей Ceresit, щоб при написанні можна було
+# знайти будь-яку".
+# ---------------------------------------------------------------------------
+
+EN_SEARCH_SYNONYMS: dict[str, list[str]] = {key: list(words) for key, words in _ICON_RULES}
+# Кілька вживаних англійських слів, яких немає серед ключів _ICON_RULES (там
+# ключ — це категорія іконки, а не будь-яке слово, яким можуть шукати):
+EN_SEARCH_SYNONYMS.update({
+    "screw": ["саморіз", "саморез", "шуруп"],
+    "nail": ["цвях", "гвоздь"],
+    "primer": ["ґрунтовка", "грунтовка", "ґрунт", "грунт"],
+    "putty": ["шпаклівка", "шпатлівка", "шпаклёвка"],
+    "mortar": ["розчин", "суміш", "смесь"],
+    "mix": ["суміш", "смесь"],
+    "board": ["плита", "гіпсокартон", "дсп", "осб"],
+    "profile": ["профіль", "профиль"],
+    "mesh": ["сітка", "сетка", "склосітка"],
+    "foam": ["піна", "пена"],
+    "sand": ["пісок", "песок"],
+    "gravel": ["щебінь", "щебень", "гравій"],
+    "brick": ["цегла", "кирпич"],
+    "block": ["блок", "газобетон", "піноблок"],
+    "wire": ["дріт", "провід", "провод"],
+    "socket": ["розетка", "вимикач"],
+    "toilet": ["унітаз", "унитаз"],
+    "mixer": ["змішувач", "смеситель"],
+})
+
+# Зворотний індекс: будь-яке укр./рос. слово -> список англійських ключів,
+# яким воно відповідає (будується один раз при старті процесу).
+_EN_REVERSE_WORDS: dict[str, list[str]] = {}
+for _en_key, _local_words in EN_SEARCH_SYNONYMS.items():
+    for _lw in _tokenize_query(" ".join(_local_words)):
+        _EN_REVERSE_WORDS.setdefault(_lw, []).append(_en_key)
+
+# Відомі бренди (латиницею, як у назвах товарів) -> поширені варіанти
+# написання кирилицею. Навмисно невеликий і ручний список — дивись
+# пояснення вище, чому не автоматична транслітерація. Легко поповнюється.
+BRAND_ALIASES: dict[str, list[str]] = {
+    "ceresit": ["церезит", "церезіт"],
+    "henkel": ["хенкель", "генкель"],
+    "siltek": ["сілтек", "силтек"],
+    "polimin": ["полімін", "полимин"],
+    "knauf": ["кнауф"],
+    "weber": ["вебер"],
+    "bergauf": ["бергауф"],
+    "baumit": ["баумит"],
+    "sika": ["сика"],
+    "mapei": ["мапеи", "мапей"],
+}
+_BRAND_RE = re.compile(
+    "|".join(re.escape(b) for b in sorted(BRAND_ALIASES, key=len, reverse=True)),
+    re.IGNORECASE,
+)
+
+
+def build_search_blob(name: str, category: str, supplier: str) -> str:
+    """Готовий рядок для data-search у catalog.html — див. пояснення вище."""
+    base_text = " ".join([
+        name or "",
+        translate_material_name(name or "", "ru"),
+        category or "",
+        translate_category(category or "", "ru"),
+        supplier or "",
+    ])
+
+    extra: set[str] = set()
+    for w in _tokenize_query(base_text):
+        extra.update(_EN_REVERSE_WORDS.get(w, ()))
+    for bm in _BRAND_RE.finditer(base_text):
+        extra.update(BRAND_ALIASES.get(bm.group(0).lower(), ()))
+
+    if extra:
+        base_text = base_text + " " + " ".join(sorted(extra))
+    return base_text.lower()
+
+
+templates.env.filters["searchblob"] = build_search_blob
 
 # Частые сокращения поставщиков в названиях товарів — "д/підлоги" вместо
 # "для підлоги", "2компл." вместо "двокомпонентний" и т.п. Разворачиваем их
