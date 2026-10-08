@@ -223,6 +223,96 @@ body {
     height: 18px;
 }
 
+/* ---------- Заголовок секції категорії (групування каталогу за
+   категоріями, і кожна група в режимі "порівняти ціни") — ПРЯМА СКАРГА
+   користувача: іконка тут раніше не мала ЖОДНОГО власного стилю (ні
+   .category-section, ні .category-section-head/-name/-count не існували
+   в style.css взагалі) — елементи просто покладались на типографську
+   "середину рядка" (vertical-align: middle всередині звичайного тексту
+   заголовка), через що той самий .material-icon у двох різних заголовках
+   (різний текст поруч, різна жирність/розмір шрифту) виглядав по-різному
+   розташованим — "іконка посіред верхнім і нижнім стовпцем не вирівняні".
+   Тепер — явний flex-рядок із вирівнюванням по центру (а не типографія),
+   і окрема, трохи більша (26px замість звичайних 22px) плитка іконки —
+   саме це й просили: "увеличить иконку [...] и поставить посреди". */
+.category-section { margin-bottom: 30px; }
+.category-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+}
+.category-section-name {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.2;
+}
+/* margin-right:0 — .category-section-name вже розставляє відступ сам,
+   через flex-gap вище; без цього перезапису іконка й текст мали б
+   подвійний відступ (і gap, і стара margin-right:8px одночасно). */
+.category-section-name .material-icon {
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    border-radius: 7px;
+    margin-right: 0;
+}
+.category-section-name .material-icon-svg {
+    width: 16px;
+    height: 16px;
+}
+.category-section-count {
+    flex-shrink: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 13px;
+    white-space: nowrap;
+}
+
+/* ---------- Зірочка "додати в обране" — пряме прохання користувача
+   (кнопка в кожному рядку таблиці каталогу, і окрема сторінка /favorites,
+   див. favorites.html). Монохромний стиль навмисно (без "золотого" кольору) —
+   узгоджено з рештою сайту, де навіть .category-pill свідомо
+   ОДНОКОЛІРНИЙ (див. коментар над ним): заповнена/порожня зірка (★/☆) і
+   так достатньо відрізняються візуально, окремий яскравий колір був би
+   єдиною кольоровою плямою на монохромному тлі. */
+.fav-col { width: 1%; white-space: nowrap; }
+.fav-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.fav-toggle-btn:hover {
+    border-color: var(--border);
+    background: var(--surface-hover);
+    color: var(--text);
+}
+.fav-toggle-btn.is-favorited {
+    color: var(--text);
+}
+.favorites-toolbar { margin-bottom: 14px; }
+
 mark {
     background: var(--accent);
     color: var(--accent-text);
