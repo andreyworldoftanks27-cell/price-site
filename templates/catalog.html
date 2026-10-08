@@ -417,6 +417,17 @@
         var EXTERNAL_VISIBLE_COUNT = 8;
         var EXTERNAL_NOT_FOUND_TITLE = {{ t.external_not_found|tojson }};
         var EXTERNAL_MORE_OPTIONS_TITLE = {{ t.external_more_options|tojson }};
+        // Користувач попросив просту, зрозумілу структуру замість одного
+        // суцільного списку: "1 точний відповідь, пару подібних варіантів,
+        // і може десь внизу компоненти, які можуть знадобитися" — сервер
+        // (/live-search, main.py: _relevant_prefix_count) тепер рахує,
+        // скільки товарів від початку КОЖНОГО джерела справді відповідають
+        // запиту (relevant_count), і ранжує самі джерела так, щоб те, де
+        // таких збігів найбільше, було ПЕРШИМ. Ці два підписи — для межі
+        // між "справді відповідає запиту" і "загальна категорія/супутнє"
+        // всередині одного джерела (buildExternalLiveBlock нижче).
+        var EXTERNAL_MAYBE_NEEDED_LABEL = {{ t.external_maybe_needed|tojson }};
+        var EXTERNAL_NO_EXACT_MATCH_NOTE = {{ t.external_no_exact_match|tojson }};
 
         function showExternalSearch(query, visible) {
             if (!query || query.length < 2) {
@@ -472,13 +483,52 @@
 
             var itemsBox = document.createElement("div");
             itemsBox.className = "external-live-items";
+
+            // relevant_count (від сервера, _relevant_prefix_count у main.py)
+            // — скільки товарів від початку списку РЕАЛЬНО містять хоч
+            // щось зі слів запиту в назві. Якщо 0 — жоден товар цього
+            // джерела буквально не відповідає запиту (трапляється на
+            // сайтах типу Vencon.ua, де назви товарів — просто бренд+код
+            // без загальних слів) — попереджаємо про це одразу зверху,
+            // щоб список не виглядав як "випадковий набір", а чесно як
+            // "ось загальна категорія, точного збігу нема".
+            var relevantN = source.relevant_count || 0;
+            if (relevantN === 0 && source.items.length > 0) {
+                var noMatchNote = document.createElement("div");
+                noMatchNote.className = "external-live-note";
+                noMatchNote.textContent = EXTERNAL_NO_EXACT_MATCH_NOTE;
+                itemsBox.appendChild(noMatchNote);
+            }
+
             source.items.forEach(function (it, idx) {
+                // Межа між "справді відповідає запиту" (перші relevantN
+                // товарів — список уже відсортований сервером так, що вони
+                // йдуть першими) і рештою — одна лінія-підпис, а не просто
+                // обрив списку, щоб було видно, ЧОМУ товари нижче вже не
+                // такі точні.
+                if (relevantN > 0 && idx === relevantN && idx < source.items.length) {
+                    var divider = document.createElement("div");
+                    divider.className = "external-live-divider";
+                    divider.textContent = EXTERNAL_MAYBE_NEEDED_LABEL;
+                    if (idx >= EXTERNAL_VISIBLE_COUNT) {
+                        divider.classList.add("external-live-item--extra");
+                        divider.style.display = "none";
+                    }
+                    itemsBox.appendChild(divider);
+                }
+
                 // Кожен рядок — це посилання САМЕ на сторінку цього
                 // товару (it.url прийшов із сервера, /live-search), а не
                 // просто текст — відкривається в новій вкладці, так само
                 // як кнопки Prom.ua/Google Shopping нижче.
                 var row = document.createElement("a");
                 row.className = "external-live-item";
+                // Найперший товар, якщо він дійсно відповідає запиту
+                // (relevantN > 0) — це і є "1 точний відповідь", який
+                // користувач попросив виділити, а не губити серед інших.
+                if (relevantN > 0 && idx === 0) {
+                    row.classList.add("external-live-item--best");
+                }
                 // Понад EXTERNAL_VISIBLE_COUNT (8) товарів сервер уже
                 // надіслав (до 20, _rank_live_items(limit=20) у main.py) —
                 // решта просто схована через клас, доки не натиснуть
