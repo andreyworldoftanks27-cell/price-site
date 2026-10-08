@@ -63,6 +63,8 @@
 
 <p class="muted" id="shownCounter">{{ t.shown_label.replace("{n}", total_shown|string) }}</p>
 
+{% macro fav_button(m) %}<button type="button" class="fav-toggle-btn" data-fav-id="{{ m.id }}" data-fav-name="{{ m.name|matname(lang) }}" data-fav-category="{{ m.category|cat(lang) }}" data-fav-supplier="{{ m.supplier }}" data-fav-price="{{ m.price }}" data-fav-unit="{{ m.unit }}" data-fav-icon="{{ m.name|icon }}" title="{{ t.fav_add_title }}" aria-label="{{ t.fav_add_title }}" onclick="event.stopPropagation(); toggleFavorite(this)">☆</button>{% endmacro %}
+
 {% macro material_table(items, show_category=False) %}
 <div class="table-wrap">
 <table class="data-table catalog-table">
@@ -74,6 +76,7 @@
             <th>{{ t.th_price_date }}</th>
             <th class="num">{{ t.th_quantity }}</th>
             <th class="num">{{ t.th_price }}</th>
+            <th class="fav-col"></th>
         </tr>
     </thead>
     <tbody>
@@ -92,6 +95,7 @@
                 </div>
                 {% endif %}
             </td>
+            <td class="num fav-col">{{ fav_button(m) }}</td>
         </tr>
         {% endfor %}
     </tbody>
@@ -115,6 +119,7 @@
                     <th>{{ t.th_category }}</th>
                     <th class="num">{{ t.th_quantity }}</th>
                     <th class="num">{{ t.th_price }}</th>
+                    <th class="fav-col"></th>
                 </tr>
             </thead>
             <tbody>
@@ -127,6 +132,7 @@
                     <td><span class="category-pill">{{ m.category|cat(lang) }}</span></td>
                     <td class="num">{% if m.quantity is not none %}{{ "%.2f"|format(m.quantity) }}{% else %}—{% endif %}</td>
                     <td class="num price-cell">{{ "%.2f"|format(m.price) }} <span class="material-unit">{{ t.uah_per }}{{ m.unit }}</span></td>
+                    <td class="num fav-col">{{ fav_button(m) }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -606,6 +612,77 @@
 
         input.addEventListener("input", applyFilter);
         applyFilter();
+    })();
+</script>
+
+<!-- "Обране" — окремий, самодостатній блок JS (не всередині IIFE пошуку
+     вище, щоб нічого там не чіпати). Прямий запит користувача: "хочу
+     добавить избранное, чтобы можно было добавить товары которые можно
+     было позже очистить". Акаунтів на сайті нема (один спільний пароль),
+     тому список зберігається в localStorage цього браузера (той самий
+     підхід, що вже є для теми оформлення в base.html) — див. докладний
+     коментар біля маршруту /favorites у main.py. Кнопка ☆/★ є в кожному
+     рядку таблиці (і в звичайному каталозі, і в режимі "порівняти ціни") —
+     дані для збереження беруться прямо з data-fav-* атрибутів кнопки
+     (уже відрендерені сервером рівно ті самі значення, що показані в
+     рядку — не треба вгадувати їх через обхід DOM, який по-різному
+     влаштований у згрупованому/плоскому/порівняльному режимах). -->
+<script>
+    (function () {
+        var FAV_KEY = "priceRegistryFavorites";
+
+        function readFavorites() {
+            try {
+                var raw = localStorage.getItem(FAV_KEY);
+                return raw ? JSON.parse(raw) : {};
+            } catch (e) {
+                return {};
+            }
+        }
+        function writeFavorites(obj) {
+            try {
+                localStorage.setItem(FAV_KEY, JSON.stringify(obj));
+            } catch (e) { /* приватний режим / заборонене сховище — просто ігноруємо */ }
+        }
+
+        window.toggleFavorite = function (btn) {
+            var id = btn.getAttribute("data-fav-id");
+            var favs = readFavorites();
+            if (favs[id]) {
+                delete favs[id];
+                btn.textContent = "☆";
+                btn.classList.remove("is-favorited");
+                btn.title = {{ t.fav_add_title|tojson }};
+            } else {
+                favs[id] = {
+                    name: btn.getAttribute("data-fav-name"),
+                    category: btn.getAttribute("data-fav-category"),
+                    supplier: btn.getAttribute("data-fav-supplier"),
+                    price: parseFloat(btn.getAttribute("data-fav-price")),
+                    unit: btn.getAttribute("data-fav-unit"),
+                    icon: btn.getAttribute("data-fav-icon"),
+                    addedAt: Date.now()
+                };
+                btn.textContent = "★";
+                btn.classList.add("is-favorited");
+                btn.title = {{ t.fav_remove_title|tojson }};
+            }
+            writeFavorites(favs);
+        };
+
+        // Каталог рендериться сервером наново при кожному відкритті сторінки
+        // (це не SPA) — тому стан кнопок ("вже в обраному чи ще ні")
+        // потрібно підтягнути з localStorage одразу після завантаження,
+        // інакше ВСІ кнопки завжди показували б порожню зірочку, навіть
+        // якщо товар уже збережено раніше.
+        var favs = readFavorites();
+        document.querySelectorAll(".fav-toggle-btn[data-fav-id]").forEach(function (btn) {
+            if (favs[btn.getAttribute("data-fav-id")]) {
+                btn.textContent = "★";
+                btn.classList.add("is-favorited");
+                btn.title = {{ t.fav_remove_title|tojson }};
+            }
+        });
     })();
 </script>
 {% endblock %}

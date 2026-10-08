@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}{{ t.favorites_page_h1 }} — {{ t.site_title }}{% endblock %}
+{% block content %}
+
+<div class="catalog-head">
+    <h1>{{ t.favorites_page_h1 }}</h1>
+    <span class="muted" id="favCountLabel"></span>
+</div>
+
+<div class="filters favorites-toolbar">
+    <button type="button" class="export-btn" id="favClearBtn" style="display:none">{{ t.favorites_clear_button }}</button>
+</div>
+
+<p class="muted" id="favEmptyState" style="display:none">{{ t.favorites_empty }}</p>
+
+<div class="table-wrap" id="favTableWrap" style="display:none">
+<table class="data-table catalog-table">
+    <thead>
+        <tr>
+            <th>{{ t.th_material }}</th>
+            <th>{{ t.th_category }}</th>
+            <th>{{ t.th_supplier }}</th>
+            <th class="num">{{ t.th_price }}</th>
+            <th class="fav-col"></th>
+        </tr>
+    </thead>
+    <tbody id="favTableBody"></tbody>
+</table>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<!-- Вся сторінка рендериться на клієнті з localStorage — на сервері немає
+     жодної таблиці "обраного" (немає окремих акаунтів користувачів, див.
+     докладний коментар біля маршруту /favorites у main.py). Формат запису
+     той самий, що пише toggleFavorite() у catalog.html. -->
+<script>
+    (function () {
+        var FAV_KEY = "priceRegistryFavorites";
+        var UAH_PER = {{ t.uah_per|tojson }};
+        var CLEAR_CONFIRM = {{ t.favorites_clear_confirm|tojson }};
+        var REMOVE_TITLE = {{ t.fav_remove_title|tojson }};
+        var COUNT_LABEL = {{ t.favorites_count_label|tojson }};
+
+        function readFavorites() {
+            try {
+                var raw = localStorage.getItem(FAV_KEY);
+                return raw ? JSON.parse(raw) : {};
+            } catch (e) {
+                return {};
+            }
+        }
+        function writeFavorites(obj) {
+            try {
+                localStorage.setItem(FAV_KEY, JSON.stringify(obj));
+            } catch (e) { /* приватний режим / заборонене сховище */ }
+        }
+        function escapeHtml(s) {
+            var div = document.createElement("div");
+            div.textContent = s == null ? "" : String(s);
+            return div.innerHTML;
+        }
+
+        function render() {
+            var favs = readFavorites();
+            var ids = Object.keys(favs);
+            var wrap = document.getElementById("favTableWrap");
+            var empty = document.getElementById("favEmptyState");
+            var clearBtn = document.getElementById("favClearBtn");
+            var countLabel = document.getElementById("favCountLabel");
+            var body = document.getElementById("favTableBody");
+
+            countLabel.textContent = ids.length ? (ids.length + " " + COUNT_LABEL) : "";
+
+            if (!ids.length) {
+                wrap.style.display = "none";
+                empty.style.display = "";
+                clearBtn.style.display = "none";
+                return;
+            }
+            wrap.style.display = "";
+            empty.style.display = "none";
+            clearBtn.style.display = "";
+
+            // Найновіше додане — зверху.
+            ids.sort(function (a, b) { return (favs[b].addedAt || 0) - (favs[a].addedAt || 0); });
+
+            body.innerHTML = ids.map(function (id) {
+                var item = favs[id];
+                var priceNum = parseFloat(item.price);
+                var priceText = isNaN(priceNum) ? "—" : priceNum.toFixed(2);
+                var supplierInitial = item.supplier ? item.supplier.charAt(0).toUpperCase() : "?";
+                return (
+                    '<tr class="material-row clickable-row" onclick="location.href=\'/material/' + encodeURIComponent(id) + '/history\'">' +
+                        '<td class="material-name"><span class="material-icon"><svg class="material-icon-svg"><use href="#icon-' + escapeHtml(item.icon || "default") + '"></use></svg></span><span class="name-text">' + escapeHtml(item.name) + '</span></td>' +
+                        '<td><span class="category-pill">' + escapeHtml(item.category) + '</span></td>' +
+                        '<td class="muted"><span class="supplier-avatar">' + escapeHtml(supplierInitial) + '</span>' + escapeHtml(item.supplier) + '</td>' +
+                        '<td class="num price-cell">' + priceText + ' <span class="material-unit">' + escapeHtml(UAH_PER + (item.unit || "")) + '</span></td>' +
+                        '<td class="num fav-col"><button type="button" class="fav-toggle-btn is-favorited" title="' + escapeHtml(REMOVE_TITLE) + '" aria-label="' + escapeHtml(REMOVE_TITLE) + '" onclick="event.stopPropagation(); removeFavorite(' + JSON.stringify(id) + ')">★</button></td>' +
+                    '</tr>'
+                );
+            }).join("");
+        }
+
+        window.removeFavorite = function (id) {
+            var favs = readFavorites();
+            delete favs[id];
+            writeFavorites(favs);
+            render();
+        };
+
+        document.getElementById("favClearBtn").addEventListener("click", function () {
+            if (!window.confirm(CLEAR_CONFIRM)) return;
+            writeFavorites({});
+            render();
+        });
+
+        render();
+    })();
+</script>
+{% endblock %}

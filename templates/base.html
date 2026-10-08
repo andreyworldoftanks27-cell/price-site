@@ -78,6 +78,7 @@
             <nav class="sidebar-nav">
                 <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">{{ t.nav_catalog }}</a>
                 <a href="/duplicates" class="{% if request.url.path == '/duplicates' %}active{% endif %}">{{ t.nav_duplicates }}</a>
+                <a href="/favorites" class="{% if request.url.path == '/favorites' %}active{% endif %}">{{ t.nav_favorites }}</a>
                 <a href="/logout">{{ t.nav_logout }}</a>
             </nav>
             {% endif %}
