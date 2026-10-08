@@ -973,22 +973,47 @@ def _rank_live_items(items: list[dict], query_tokens: list[str], limit: int = 8)
 
     Сортування Python стабільне — тому серед товарів з ОДНАКОВОЮ кількістю
     збігів (у т.ч. серед 0-у-всіх, якщо нічого не збіглося) зберігається
-    початковий порядок за ціною.
+    початковий порядок за ціною — КРІМ одного додаткового рівня, описаного
+    нижче (complexity bucket).
+
+    Користувач поскаржився на прикладі "цемент": для такого однослівного
+    запиту майже ВСІ товари категорії містять "цемент" прямо в назві (це ж
+    цемент) — тобто match_count однаковий практично для всіх, і перемагає
+    голе сортування за ціною, яке піднімає нагору не "звичайний" цемент, а
+    найдорожчі СПЕЦІАЛЬНІ варіанти (гідроізоляційний, швидкотверднучий,
+    для холодної пори року...) — формально теж "цемент", просто не те,
+    що людина, скоріш за все, мала на увазі простим словом "цемент".
+    Перевірено на реальних назвах категорії цементу Епіцентру: прості
+    товари ("Цемент М 400 5кг", "Цемент ПЦ І 500 Н 5 кг") — КОРОТШІ за
+    назвою, ніж спеціалізовані варіанти з купою додаткових слів
+    ("Цемент гидроизоляционный ГИР-2 М-600 ВС Плюс сульфатостойкий 50 кг").
+    Тому ДРУГИЙ ключ сортування (ПІСЛЯ match_count, ПЕРЕД ціною) — "бакет
+    складності" назви (довжина без дужок, округлена вниз до 20 символів):
+    товари з КОРОТШОЮ, простішою назвою — тобто ймовірніше саме "звичайний"
+    варіант — підіймаються вище товарів з довшою, навантаженою додатковими
+    словами назвою, навіть якщо ті дорожчі. Це навмисно ГРУБИЙ розподіл по
+    бакетах по 20 символів (а не точна довжина) — щоб дрібна різниця в
+    пару символів між двома однаково "звичайними" товарами не перебивала
+    сортування за ціною всередині одного бакета, це лишається попереднім
+    принципом "показувати найвищу можливу ціну" серед порівнянних товарів.
     """
     if not query_tokens:
         return items[:limit]
 
-    def match_count(it: dict) -> int:
+    def sort_key(it: dict) -> tuple[int, int]:
         # Артикул/код товару майже завжди в дужках у кінці назви (напр.
         # "(R3560044032)") — і, на реальних даних, ЦИФРИ коду регулярно
         # випадково містять шуканий типорозмір як підрядок ("35" усередині
         # "R3560044032"), підіймаючи зовсім не той товар. Прибираємо вміст
         # дужок ПЕРЕД порівнянням — типорозмір завжди в основній частині
-        # назви, а не в самому коді.
+        # назви, а не в самому коді; та ж паренс-очищена назва йде і в
+        # розрахунок "бакета складності" нижче.
         name_l = _PAREN_RE.sub(" ", it["name"]).lower()
-        return sum(1 for tok in query_tokens if tok in name_l)
+        match_count = sum(1 for tok in query_tokens if tok in name_l)
+        complexity_bucket = len(name_l) // 20
+        return (match_count, -complexity_bucket)
 
-    ranked = sorted(items, key=match_count, reverse=True)
+    ranked = sorted(items, key=sort_key, reverse=True)
     return ranked[:limit]
 
 
@@ -1100,7 +1125,10 @@ def find_live_sources(query: str, max_results: int = 6) -> list[dict]:
             expanded_words.update(_tokenize_for_live_match(syn))
     q_words = list(expanded_words)
 
-    scored = []
+    # --- Збір "сирих" збігів: для кожного джерела — МНОЖИНА слів запиту,
+    # які воно покриває (а не лише їхню кількість) — множина потрібна
+    # нижче, щоб порахувати "рідкісність" кожного слова запиту.
+    raw_matches: list[tuple[dict, set]] = []
     for entry in EXTERNAL_LIVE_SOURCES:
         entry_words = entry.get("_kw_words")
         if entry_words is None:
@@ -1108,11 +1136,11 @@ def find_live_sources(query: str, max_results: int = 6) -> list[dict]:
             for kw in entry["keywords"]:
                 entry_words.update(_tokenize_for_live_match(kw))
             entry["_kw_words"] = entry_words
-        score = sum(1 for qw in q_words if any(_words_match(qw, ew) for ew in entry_words))
-        if score > 0:
-            scored.append((score, entry))
+        matched = {qw for qw in q_words if any(_words_match(qw, ew) for ew in entry_words)}
+        if matched:
+            raw_matches.append((entry, matched))
 
-    if not scored:
+    if not raw_matches:
         # Жодного ТОЧНОГО збігу — перш ніж здатися зовсім, пробуємо
         # ширший fallback-пошук (_words_fuzzy_match, підрядок у будь-який
         # бік). Це НЕ повноцінний повнотекстовий пошук "як у Google" — за
@@ -1125,14 +1153,46 @@ def find_live_sources(query: str, max_results: int = 6) -> list[dict]:
         # а не перелік самих категорій.
         for entry in EXTERNAL_LIVE_SOURCES:
             entry_words = entry["_kw_words"]  # вже закешовано вище
-            score = sum(1 for qw in q_words if any(_words_fuzzy_match(qw, ew) for ew in entry_words))
-            if score > 0:
-                scored.append((score, entry))
+            matched = {qw for qw in q_words if any(_words_fuzzy_match(qw, ew) for ew in entry_words)}
+            if matched:
+                raw_matches.append((entry, matched))
 
-    # Стабільне сортування за рахунком, найкращі спочатку; порядок рівних
-    # за рахунком лишається таким, як у EXTERNAL_LIVE_SOURCES (sort у
-    # Python — стабільний), тобто за порядком оголошення в списку вище.
-    scored.sort(key=lambda pair: pair[0], reverse=True)
+    # Скільки РІЗНИХ джерел покриває КОЖНЕ слово запиту окремо — рахуємо
+    # ТУТ, по готовому raw_matches (а не по сирих токенах ключових фраз):
+    # слово "трубы" збігається і з джерелами, де є буквально "трубы", і з
+    # "ізоляція труб" (через корінь "труб") — усі вони мають рахуватись як
+    # ОДНЕ й те саме, часто вживане слово. Якби рахувати частоту по
+    # ЛІТЕРАЛЬНИХ токенах ключових фраз (як було в першій версії цього
+    # виправлення), "труб" (лише в "ізоляція труб") і "трубы" (в десятку
+    # інших джерел) вважались би РІЗНИМИ, однаково рідкісними словами — і
+    # "ізоляція труб" помилково вигравала б у джерела з дійсно рідкісним і
+    # специфічним словом "муфта" тим самим чином, яким раніше вигравала
+    # просто перша за порядком оголошення категорія.
+    word_doc_count: dict[str, int] = {}
+    for _entry, matched in raw_matches:
+        for qw in matched:
+            word_doc_count[qw] = word_doc_count.get(qw, 0) + 1
+
+    # Стабільне сортування: спочатку за рахунком (скільки слів запиту
+    # збіглося), а ПРИ РІВНОМУ рахунку — за "рідкісністю" (сума 1/частота
+    # по кожному збіглому слову, вище — краще). Користувач поскаржився на
+    # прикладі "труба муфта": джерело Rozetka "сантехніка/фітинги" (ЄДИНЕ
+    # в усьому списку зі словом "муфта") мало ТОЙ САМИЙ рахунок (1), що й
+    # звичайні "труба водопровідна"/"труба каналізаційна" (кожне теж
+    # збігається лише з одним словом запиту — "труба"/"трубы", яке є
+    # практично в кожному джерелі труб) — і програвало суто через порядок
+    # оголошення в списку (diversify-by-shop нижче бере ПЕРШЕ за цим
+    # порядком джерело на кожен магазин). Рахунок однаковий, але збіг зі
+    # словом "муфта" (1 джерело на весь список) набагато інформативніший
+    # за черговий збіг із майже всюдисущим "труба"/"трубы" (8-11 джерел) —
+    # рідкісність це і відображає. Порядок рівних і за рахунком, і за
+    # рідкісністю лишається таким, як у EXTERNAL_LIVE_SOURCES (sort у
+    # Python — стабільний).
+    scored = [
+        (len(matched), sum(1.0 / word_doc_count[qw] for qw in matched), entry)
+        for entry, matched in raw_matches
+    ]
+    scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
 
     # РАНІШЕ тут було просто "перші max_results зі scored" — і для запитів
     # типу "клей" це означало ВСІ max_results місць займали категорії
@@ -1150,7 +1210,7 @@ def find_live_sources(query: str, max_results: int = 6) -> list[dict]:
     # менше за max_results.
     chosen: list[dict] = []
     seen_shops: set[str] = set()
-    for _score, entry in scored:
+    for _score, _rarity, entry in scored:
         if len(chosen) >= max_results:
             break
         if entry["shop"] in seen_shops:
@@ -1158,7 +1218,7 @@ def find_live_sources(query: str, max_results: int = 6) -> list[dict]:
         chosen.append(entry)
         seen_shops.add(entry["shop"])
     if len(chosen) < max_results:
-        for _score, entry in scored:
+        for _score, _rarity, entry in scored:
             if len(chosen) >= max_results:
                 break
             if entry in chosen:
