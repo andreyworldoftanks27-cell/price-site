@@ -258,6 +258,27 @@ def _src_rozetka(keywords, path):
     }
 
 
+# Бренди й код товарної лінії, реально ПОБАЧЕНІ (живим запитом до сторінки
+# категорії, не вигадані) на картках плиткового клею одразу на трьох
+# сайтах нижче (Епіцентр, Будмаг, Vista.ua) — Ceresit, Siltek, Polimin,
+# Knauf, Baumit, Kreisel. Користувач поскаржився, що запити на кшталт
+# "ceresit" чи "cm 117" (код товарної лінії Ceresit — саме "клей для
+# плитки", підтверджено: на сторінці Будмагу буквально є "Ceresit CM 117
+# Flex") нічого не знаходили — не тому, що це погана категорія, а тому що
+# в keywords жодного джерела не було НІ назви бренду, НІ короткого "cm"
+# (а find_live_sources раніше ще й відкидав токени коротші за 3 символи,
+# див. _tokenize_for_live_match вище). Тепер ці ключові слова додані до
+# ВСІХ ТРЬОХ перевірених джерел плиткового клею — і запит з одним лише
+# брендом чи кодом товарної лінії тепер теж знаходить джерело.
+_TILE_GLUE_BRAND_KEYWORDS = [
+    "ceresit", "церезит", "церезіт", "cm",
+    "siltek", "сілтек", "силтек",
+    "polimin", "полімін", "полимин",
+    "knauf", "кнауф",
+    "baumit", "баумит",
+    "kreisel", "крайзель", "крейзель",
+]
+
 # Розширений список — кожен slug перевірений через реальний запит до сторінки
 # категорії Епіцентру (не вигаданий), щоб не повторити помилку з Hotline.ua
 # (вигадана адреса, яка виявилась нечинною). Раніше тут було лише 7 вузьких
@@ -268,7 +289,10 @@ def _src_rozetka(keywords, path):
 # саме завдяки слову "пва" потрапить у вужчу, правильнішу категорію, а не
 # в загальну "клей".
 EXTERNAL_LIVE_SOURCES = [
-    _src(["клей для плитки", "плиточний клей", "клей плитка", "плиточный клей"], "kley-dlya-plitki"),
+    _src(
+        ["клей для плитки", "плиточний клей", "клей плитка", "плиточный клей"] + _TILE_GLUE_BRAND_KEYWORDS,
+        "kley-dlya-plitki",
+    ),
     _src(["клей пва", "пва клей", "pva клей", "клей pva", "клей ПВА"], "kley-pva"),
     _src(["монтажний клей", "монтажный клей", "клей монтажний", "клей монтажный"], "kley-montazhnyy"),
     _src(["клей герметик", "клей-герметик"], "kley-germetik"),
@@ -466,13 +490,13 @@ EXTERNAL_LIVE_SOURCES = [
         "href_re": _BUDIA_PRODUCT_HREF_RE,
     },
     {
-        "keywords": ["клей для плитки", "плиточний клей", "клей плитка", "плиточный клей", "клей"],
+        "keywords": ["клей для плитки", "плиточний клей", "клей плитка", "плиточный клей", "клей"] + _TILE_GLUE_BRAND_KEYWORDS,
         "shop": "Будмаг (strojmag.ua)",
         "url": "https://www.strojmag.ua/uk/katalog/smesi/kleevye_sostavy/klej-dlja-plitki",
         "href_re": _STROJMAG_PRODUCT_HREF_RE,
     },
     {
-        "keywords": ["клей для плитки", "плиточний клей", "клей плитка", "плиточный клей", "клей"],
+        "keywords": ["клей для плитки", "плиточний клей", "клей плитка", "плиточный клей", "клей"] + _TILE_GLUE_BRAND_KEYWORDS,
         "shop": "Vista.ua",
         "url": "https://vista.ua/keramichna-plitka/klej-dlja-plitki/",
         "href_re": _ROZETKA_PRODUCT_HREF_RE,
@@ -1031,7 +1055,13 @@ def find_live_sources(query: str, max_results: int = 6) -> list[dict]:
     "клей пва" не знаходив НІЧОГО, бо жодна curated-фраза не збігалася і
     не містила його цілком.
     """
-    q_words = _tokenize_query(query)
+    # _tokenize_for_live_match (не _tokenize_query!) — навмисно: не
+    # відкидає короткі токени ("cm", "ct" — коди товарних ліній) і фолдить
+    # кирилично-латинські двійники ДО порівняння (щоб "ceresit" і
+    # "церезит"/"церезіт" рахувались однаково) — див. пояснення над
+    # визначенням функції. Інакше запит "cm 117" ніколи б не знайшов
+    # жодного джерела: "cm" відкидався б ще до порівняння.
+    q_words = _tokenize_for_live_match(query)
     if not q_words:
         return []
 
@@ -1041,7 +1071,7 @@ def find_live_sources(query: str, max_results: int = 6) -> list[dict]:
         if entry_words is None:
             entry_words = set()
             for kw in entry["keywords"]:
-                entry_words.update(_tokenize_query(kw))
+                entry_words.update(_tokenize_for_live_match(kw))
             entry["_kw_words"] = entry_words
         score = sum(1 for qw in q_words if any(_words_match(qw, ew) for ew in entry_words))
         if score > 0:
@@ -1470,6 +1500,10 @@ BRAND_ALIASES: dict[str, list[str]] = {
     "baumit": ["баумит"],
     "sika": ["сика"],
     "mapei": ["мапеи", "мапей"],
+    # Побачено наживо на сторінках категорій клею для плитки (Епіцентр,
+    # Будмаг, Vista.ua) поряд із Ceresit/Siltek/Polimin/Knauf/Baumit вище —
+    # реальний, не вигаданий бренд.
+    "kreisel": ["крайзель", "крейзель"],
 }
 _BRAND_RE = re.compile(
     "|".join(re.escape(b) for b in sorted(BRAND_ALIASES, key=len, reverse=True)),
@@ -1501,6 +1535,27 @@ _HOMOGLYPH_FOLD_MAP = str.maketrans({
 
 def _fold_homoglyphs(text: str) -> str:
     return text.translate(_HOMOGLYPH_FOLD_MAP)
+
+
+# Окремий, РОЗСЛАБЛЕНИЙ токенізатор — САМЕ для find_live_sources нижче
+# (порівняння запиту користувача з ключовими словами EXTERNAL_LIVE_SOURCES).
+# _tokenize_query вище відкидає короткі (< 3 символів) токени — це правильно
+# для блоку локального пошуку (build_search_blob), але ламало зовнішній
+# пошук за кодами товарних ліній на кшталт "CM 117" (Ceresit): "cm" — лише
+# 2 символи, тому ВІДКИДАВСЯ ще до порівняння, і запит "cm 117" ніколи не
+# міг знайти жодного джерела, хоч би яке ключове слово я туди додав.
+# Користувач прямо попросив: "має шукати навіть так, щоб можна було знайти
+# прям будь-який запит... головне щоб шукало". Тому тут: (1) короткі
+# токени НЕ відкидаються (лише службові слова-стоп), і (2) фолдинг
+# кирилично-латинських двійників ДО токенізації — щоб "ceresit" (латиницею)
+# і "церезит"/"церезіт" (кирилицею) порівнювались в однаковій формі, не
+# лишень в сторону локального пошуку, як було раніше.
+_LIVE_MATCH_WORD_RE = re.compile(r"[a-zа-яіїєґ0-9]+")
+
+
+def _tokenize_for_live_match(text: str) -> list[str]:
+    folded = _fold_homoglyphs(text.lower())
+    return [w for w in _LIVE_MATCH_WORD_RE.findall(folded) if w not in _SEARCH_STOPWORDS]
 
 
 def build_search_blob(name: str, category: str, supplier: str) -> str:
