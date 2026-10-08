@@ -1065,6 +1065,25 @@ def find_live_sources(query: str, max_results: int = 6) -> list[dict]:
     if not q_words:
         return []
 
+    # Англійські слова запиту ("cement", "pipe", "glue"...) — РОЗШИРЮЄМО
+    # їхніми укр./рос. відповідниками з EN_SEARCH_SYNONYMS (той самий
+    # словник, яким build_search_blob розширює ЛОКАЛЬНИЙ пошук нижче за
+    # файлом) ДО порівняння з EXTERNAL_LIVE_SOURCES — бо keywords джерел
+    # майже всі українською/російською ("цемент", не "cement"), і без
+    # цього кроку англійське слово НІКОЛИ б не могло знайти жодного
+    # джерела, хоч скільки категорій додай. Користувач прямо показав
+    # приклад: "cement" знаходить "cm"/"ceresit" (уже працює), але сам по
+    # собі — ні, хоча "цемент" як категорія в нас давно є (Епіцентр,
+    # Rozetka, Budia.ua, Будмаг). EN_SEARCH_SYNONYMS визначений НИЖЧЕ за
+    # файлом (разом з build_search_blob) — це нормально в Python: виклик
+    # (не визначення) функції стається вже після того, як увесь модуль
+    # довантажився.
+    expanded_words = set(q_words)
+    for w in q_words:
+        for syn in EN_SEARCH_SYNONYMS.get(w, ()):
+            expanded_words.update(_tokenize_for_live_match(syn))
+    q_words = list(expanded_words)
+
     scored = []
     for entry in EXTERNAL_LIVE_SOURCES:
         entry_words = entry.get("_kw_words")
