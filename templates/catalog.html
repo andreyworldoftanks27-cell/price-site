@@ -434,6 +434,13 @@
         // всередині одного джерела (buildExternalLiveBlock нижче).
         var EXTERNAL_MAYBE_NEEDED_LABEL = {{ t.external_maybe_needed|tojson }};
         var EXTERNAL_NO_EXACT_MATCH_NOTE = {{ t.external_no_exact_match|tojson }};
+        // Для зірочки "додати в обране" на товарах з ІНШИХ сайтів (не з
+        // нашої БД) — див. window.toggleExternalFavorite у другому
+        // <script>-блоці ("Обране") нижче, він уже виконався на цей
+        // момент (синхронно, при першому завантаженні сторінки) і до
+        // нього можна звертатись тут.
+        var FAV_ADD_TITLE = {{ t.fav_add_title|tojson }};
+        var FAV_REMOVE_TITLE = {{ t.fav_remove_title|tojson }};
 
         function showExternalSearch(query, visible) {
             if (!query || query.length < 2) {
@@ -552,8 +559,43 @@
                 var price = document.createElement("span");
                 price.className = "external-live-price";
                 price.textContent = Number(it.price).toFixed(2) + " ₴";
+
+                // "можем ли мы добавлять в избранное то что не имеется у
+                // нас в ассортименте или просто с остальных сайтов?" —
+                // товар цього джерела (it) ще не має власного рядка в
+                // нашій БД, тому зірочка зберігає його окремим записом
+                // (window.toggleExternalFavorite, ключ "ext:" + it.url).
+                // preventDefault+stopPropagation — інакше клік по зірочці
+                // (вона лежить УСЕРЕДИНІ <a>) ще й відкрив би сайт джерела
+                // в новій вкладці одночасно з додаванням в обране.
+                var favId = "ext:" + it.url;
+                var favBtn = document.createElement("button");
+                favBtn.type = "button";
+                favBtn.className = "fav-toggle-btn external-fav-btn";
+                favBtn.setAttribute("data-fav-ext-id", favId);
+                var alreadyFav = !!(window.readFavorites && window.readFavorites()[favId]);
+                favBtn.textContent = alreadyFav ? "★" : "☆";
+                if (alreadyFav) favBtn.classList.add("is-favorited");
+                favBtn.title = alreadyFav ? FAV_REMOVE_TITLE : FAV_ADD_TITLE;
+                favBtn.setAttribute("aria-label", favBtn.title);
+                favBtn.addEventListener("click", function (ev) {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    window.toggleExternalFavorite(favBtn, favId, { name: it.name, shop: source.shop, url: it.url, price: it.price });
+                });
+
+                // Ціна й зірочка — разом у правій групі (а не трьома
+                // окремими flex-дітьми .external-live-item), інакше
+                // justify-content:space-between розкидало б їх порівну
+                // по всій ширині рядка замість "ціна й зірочка поруч
+                // праворуч", як у звичайній таблиці каталогу.
+                var rightGroup = document.createElement("span");
+                rightGroup.className = "external-live-right";
+                rightGroup.appendChild(price);
+                rightGroup.appendChild(favBtn);
+
                 row.appendChild(name);
-                row.appendChild(price);
+                row.appendChild(rightGroup);
                 itemsBox.appendChild(row);
             });
 
@@ -630,6 +672,8 @@
 <script>
     (function () {
         var FAV_KEY = "priceRegistryFavorites";
+        var FAV_ADD_TITLE = {{ t.fav_add_title|tojson }};
+        var FAV_REMOVE_TITLE = {{ t.fav_remove_title|tojson }};
 
         function readFavorites() {
             try {
@@ -644,15 +688,26 @@
                 localStorage.setItem(FAV_KEY, JSON.stringify(obj));
             } catch (e) { /* приватний режим / заборонене сховище — просто ігноруємо */ }
         }
+        function setBtnState(btn, isFav) {
+            btn.textContent = isFav ? "★" : "☆";
+            btn.classList.toggle("is-favorited", isFav);
+            btn.title = isFav ? FAV_REMOVE_TITLE : FAV_ADD_TITLE;
+            btn.setAttribute("aria-label", btn.title);
+        }
+
+        // Публічні — читає/пише і будь-який зовнішній (не з нашої БД)
+        // результат теж (buildExternalLiveBlock у блоці скрипта пошуку
+        // вище), саме тому винесені на window, а не лишені приватними
+        // всередині цього IIFE.
+        window.readFavorites = readFavorites;
+        window.writeFavorites = writeFavorites;
 
         window.toggleFavorite = function (btn) {
             var id = btn.getAttribute("data-fav-id");
             var favs = readFavorites();
             if (favs[id]) {
                 delete favs[id];
-                btn.textContent = "☆";
-                btn.classList.remove("is-favorited");
-                btn.title = {{ t.fav_add_title|tojson }};
+                setBtnState(btn, false);
             } else {
                 favs[id] = {
                     name: btn.getAttribute("data-fav-name"),
@@ -663,9 +718,39 @@
                     icon: btn.getAttribute("data-fav-icon"),
                     addedAt: Date.now()
                 };
-                btn.textContent = "★";
-                btn.classList.add("is-favorited");
-                btn.title = {{ t.fav_remove_title|tojson }};
+                setBtnState(btn, true);
+            }
+            writeFavorites(favs);
+        };
+
+        // Пряме прохання користувача: "можем ли мы добавлять в избранное
+        // то что не имеется у нас в ассортименте или просто с остальных
+        // сайтов?" — товар із зовнішнього сайту (блок "Ще варіанти в
+        // інших джерелах" унизу сторінки) не має власного m.id у нашій
+        // БД, тому ключ у сховищі — "ext:" + посилання на сам товар
+        // (воно вже унікальне й завжди є в даних від /live-search).
+        // Позначка external:true — щоб /favorites (favorites.html) знав,
+        // що клік по рядку має відкривати зовнішній сайт, а не
+        // /material/{id}/history, якого для такого товару просто не існує.
+        window.toggleExternalFavorite = function (btn, favId, data) {
+            var favs = readFavorites();
+            if (favs[favId]) {
+                delete favs[favId];
+                setBtnState(btn, false);
+            } else {
+                favs[favId] = {
+                    name: data.name,
+                    category: null,
+                    supplier: data.shop,
+                    price: parseFloat(data.price),
+                    unit: "",
+                    icon: "default",
+                    url: data.url,
+                    shop: data.shop,
+                    external: true,
+                    addedAt: Date.now()
+                };
+                setBtnState(btn, true);
             }
             writeFavorites(favs);
         };
@@ -675,14 +760,26 @@
         // потрібно підтягнути з localStorage одразу після завантаження,
         // інакше ВСІ кнопки завжди показували б порожню зірочку, навіть
         // якщо товар уже збережено раніше.
-        var favs = readFavorites();
-        document.querySelectorAll(".fav-toggle-btn[data-fav-id]").forEach(function (btn) {
-            if (favs[btn.getAttribute("data-fav-id")]) {
-                btn.textContent = "★";
-                btn.classList.add("is-favorited");
-                btn.title = {{ t.fav_remove_title|tojson }};
-            }
-        });
+        //
+        // Виклик ТАКОЖ на "pageshow" (а не лише один раз при завантаженні)
+        // — пряма скарга користувача: прибрав зірочку на сторінці "Обране"
+        // і повернувся в каталог кнопкою "назад" у браузері — Chrome у
+        // такому разі часто відновлює сторінку з bfcache (без повторного
+        // виконання скриптів), і без цього зірочки в каталозі лишались
+        // "застарілими" (показували товар обраним, хоча він уже прибраний).
+        // readFavorites() щоразу читає актуальний localStorage, тому
+        // повторний виклик — це просто безпечна синхронізація стану.
+        window.refreshFavButtonStates = function () {
+            var favs = readFavorites();
+            document.querySelectorAll(".fav-toggle-btn[data-fav-id]").forEach(function (btn) {
+                setBtnState(btn, !!favs[btn.getAttribute("data-fav-id")]);
+            });
+            document.querySelectorAll(".fav-toggle-btn[data-fav-ext-id]").forEach(function (btn) {
+                setBtnState(btn, !!favs[btn.getAttribute("data-fav-ext-id")]);
+            });
+        };
+        window.refreshFavButtonStates();
+        window.addEventListener("pageshow", window.refreshFavButtonStates);
     })();
 </script>
 {% endblock %}

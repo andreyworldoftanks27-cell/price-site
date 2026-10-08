@@ -42,6 +42,15 @@
         var CLEAR_CONFIRM = {{ t.favorites_clear_confirm|tojson }};
         var REMOVE_TITLE = {{ t.fav_remove_title|tojson }};
         var COUNT_LABEL = {{ t.favorites_count_label|tojson }};
+        // "можем ли мы добавлять в избранное то что не имеется у нас в
+        // ассортименте или просто с остальных сайтов?" — товар, доданий
+        // зі списку "Ще варіанти в інших джерелах" (catalog.html,
+        // window.toggleExternalFavorite), має external:true і url, але
+        // НЕ має власної сторінки /material/{id}/history в нас — тому
+        // рядок позначається бейджем і клік по ньому відкриває сайт
+        // джерела в новій вкладці замість внутрішньої навігації.
+        var EXTERNAL_BADGE = {{ t.favorites_external_badge|tojson }};
+        var OPEN_EXTERNAL_TITLE = {{ t.favorites_open_external_title|tojson }};
 
         function readFavorites() {
             try {
@@ -56,12 +65,25 @@
                 localStorage.setItem(FAV_KEY, JSON.stringify(obj));
             } catch (e) { /* приватний режим / заборонене сховище */ }
         }
-        function escapeHtml(s) {
-            var div = document.createElement("div");
-            div.textContent = s == null ? "" : String(s);
-            return div.innerHTML;
-        }
-
+        // ПРЯМА ПРИЧИНА скарги користувача "убираю зірочку в обраному —
+        // при поверненні в каталог товар нікуди не зникає, лишається
+        // там же": рядки раніше будувались через innerHTML-рядок із
+        // onclick="...removeFavorite(' + JSON.stringify(id) + ')" —
+        // JSON.stringify(id) сам обгортає значення в ЛАПКИ ("1"), а ці
+        // лапки потрапляли ВСЕРЕДИНУ onclick="...", який сам теж
+        // розмежований лапками — атрибут обривався на першій же з них,
+        // і браузер отримував синтаксично зіпсований JS-обробник
+        // (event.stopPropagation(); removeFavorite( — без закриття).
+        // Такий обробник кидає помилку і НІЧОГО не виконує — ані
+        // stopPropagation(), ані саме видалення — тому клік "проваливсь"
+        // крізь нього до onclick рядка (<tr>) і просто відкривав сторінку
+        // товару/сайт-джерело, а товар так і лишався в обраному. Те саме
+        // стосувалось і переходу по рядку зовнішнього товару (item.url
+        // через JSON.stringify так само ламав лапки). Рядки тепер
+        // будуються через DOM (createElement/addEventListener), а не
+        // через конкатенацію HTML-рядка з інлайновими onclick — це
+        // прибирає весь клас таких помилок екранування назавжди, а не
+        // лише цей конкретний випадок.
         function render() {
             var favs = readFavorites();
             var ids = Object.keys(favs);
@@ -77,6 +99,7 @@
                 wrap.style.display = "none";
                 empty.style.display = "";
                 clearBtn.style.display = "none";
+                body.textContent = "";
                 return;
             }
             wrap.style.display = "";
@@ -86,21 +109,89 @@
             // Найновіше додане — зверху.
             ids.sort(function (a, b) { return (favs[b].addedAt || 0) - (favs[a].addedAt || 0); });
 
-            body.innerHTML = ids.map(function (id) {
+            body.textContent = "";
+            ids.forEach(function (id) {
                 var item = favs[id];
+                var isExternal = !!item.external;
                 var priceNum = parseFloat(item.price);
                 var priceText = isNaN(priceNum) ? "—" : priceNum.toFixed(2);
+                var unitText = item.unit ? (UAH_PER + item.unit) : "₴";
                 var supplierInitial = item.supplier ? item.supplier.charAt(0).toUpperCase() : "?";
-                return (
-                    '<tr class="material-row clickable-row" onclick="location.href=\'/material/' + encodeURIComponent(id) + '/history\'">' +
-                        '<td class="material-name"><span class="material-icon"><svg class="material-icon-svg"><use href="#icon-' + escapeHtml(item.icon || "default") + '"></use></svg></span><span class="name-text">' + escapeHtml(item.name) + '</span></td>' +
-                        '<td><span class="category-pill">' + escapeHtml(item.category) + '</span></td>' +
-                        '<td class="muted"><span class="supplier-avatar">' + escapeHtml(supplierInitial) + '</span>' + escapeHtml(item.supplier) + '</td>' +
-                        '<td class="num price-cell">' + priceText + ' <span class="material-unit">' + escapeHtml(UAH_PER + (item.unit || "")) + '</span></td>' +
-                        '<td class="num fav-col"><button type="button" class="fav-toggle-btn is-favorited" title="' + escapeHtml(REMOVE_TITLE) + '" aria-label="' + escapeHtml(REMOVE_TITLE) + '" onclick="event.stopPropagation(); removeFavorite(' + JSON.stringify(id) + ')">★</button></td>' +
-                    '</tr>'
-                );
-            }).join("");
+
+                var tr = document.createElement("tr");
+                tr.className = "material-row clickable-row";
+                // Локальний товар (наша БД) — клік веде на /material/{id}/history,
+                // як і в каталозі. Зовнішній (external:true) — своєї сторінки
+                // історії в нас нема, тому клік відкриває сайт-джерело (item.url)
+                // у новій вкладці.
+                tr.addEventListener("click", function () {
+                    if (isExternal) {
+                        window.open(item.url, "_blank", "noopener");
+                    } else {
+                        location.href = "/material/" + encodeURIComponent(id) + "/history";
+                    }
+                });
+
+                var nameTd = document.createElement("td");
+                nameTd.className = "material-name";
+                var iconSpan = document.createElement("span");
+                iconSpan.className = "material-icon";
+                iconSpan.innerHTML = '<svg class="material-icon-svg"><use href="#icon-' + (item.icon || "default").replace(/[^a-z-]/g, "") + '"></use></svg>';
+                var nameText = document.createElement("span");
+                nameText.className = "name-text";
+                nameText.textContent = item.name;
+                nameTd.appendChild(iconSpan);
+                nameTd.appendChild(nameText);
+
+                var catTd = document.createElement("td");
+                var catPill = document.createElement("span");
+                if (isExternal) {
+                    catPill.className = "category-pill external-badge";
+                    catPill.title = OPEN_EXTERNAL_TITLE;
+                    catPill.textContent = EXTERNAL_BADGE + " ↗";
+                } else {
+                    catPill.className = "category-pill";
+                    catPill.textContent = item.category;
+                }
+                catTd.appendChild(catPill);
+
+                var supplierTd = document.createElement("td");
+                supplierTd.className = "muted";
+                var avatar = document.createElement("span");
+                avatar.className = "supplier-avatar";
+                avatar.textContent = supplierInitial;
+                supplierTd.appendChild(avatar);
+                supplierTd.appendChild(document.createTextNode(item.supplier || ""));
+
+                var priceTd = document.createElement("td");
+                priceTd.className = "num price-cell";
+                priceTd.appendChild(document.createTextNode(priceText + " "));
+                var unitSpan = document.createElement("span");
+                unitSpan.className = "material-unit";
+                unitSpan.textContent = unitText;
+                priceTd.appendChild(unitSpan);
+
+                var favTd = document.createElement("td");
+                favTd.className = "num fav-col";
+                var removeBtn = document.createElement("button");
+                removeBtn.type = "button";
+                removeBtn.className = "fav-toggle-btn is-favorited";
+                removeBtn.title = REMOVE_TITLE;
+                removeBtn.setAttribute("aria-label", REMOVE_TITLE);
+                removeBtn.textContent = "★";
+                removeBtn.addEventListener("click", function (ev) {
+                    ev.stopPropagation();
+                    window.removeFavorite(id);
+                });
+                favTd.appendChild(removeBtn);
+
+                tr.appendChild(nameTd);
+                tr.appendChild(catTd);
+                tr.appendChild(supplierTd);
+                tr.appendChild(priceTd);
+                tr.appendChild(favTd);
+                body.appendChild(tr);
+            });
         }
 
         window.removeFavorite = function (id) {
@@ -117,6 +208,19 @@
         });
 
         render();
+
+        // Пряма скарга користувача: прибрав зірочку тут, повернувся в
+        // каталог кнопкою "назад" у браузері, зайшов в "Обране" ще раз —
+        // товар виглядав так, ніби його й не прибирали. Причина —
+        // Chrome інколи відновлює сторінку з bfcache (швидке повернення
+        // "назад"/"вперед") БЕЗ повторного виконання скриптів, тож
+        // render() вище (викликаний лише один раз, при першому
+        // завантаженні) показував застарілий знімок DOM. localStorage
+        // при цьому вже був оновлений коректно — не вистачало лише
+        // перемальовки. pageshow спрацьовує і при звичайному завантаженні,
+        // і при відновленні з bfcache — render() щоразу читає свіжі дані,
+        // тож зайвий виклик при звичайному заході нешкідливий.
+        window.addEventListener("pageshow", render);
     })();
 </script>
 {% endblock %}
