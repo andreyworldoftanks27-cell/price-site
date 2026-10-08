@@ -2746,3 +2746,25 @@ async def duplicates(request: Request):
     ctx = base_ctx(request)
     ctx["groups"] = duplicate_groups
     return templates.TemplateResponse("duplicates.html", ctx)
+
+
+@app.get("/favorites", response_class=HTMLResponse)
+async def favorites(request: Request):
+    """
+    Пряме прохання користувача: "хочу добавить избранное, чтобы можно было
+    добавить товары которые можно было позже очистить". Навмисно БЕЗ власної
+    таблиці в БД — у сайту нема окремих акаунтів користувачів (один спільний
+    пароль на всіх, SessionMiddleware лише для входу), тому "обране" у когось
+    одного в БД означало б "обране" для АБСОЛЮТНО всіх, хто заходить на сайт —
+    явно не те, чого хоче людина. Замість цього список зберігається в
+    localStorage САМОГО браузера (той самий підхід, що вже використовується
+    для теми оформлення, див. base.html) — свій на кожному пристрої/браузері,
+    точно як людина й очікує від "обраного". Тому цей маршрут лише віддає
+    порожній каркас сторінки — весь реальний рендер (зчитування збереженого
+    списку, самі рядки таблиці, кнопка "Очистити все") робить JS у
+    favorites.html при завантаженні.
+    """
+    if not require_login(request):
+        return RedirectResponse("/login", status_code=302)
+
+    return templates.TemplateResponse("favorites.html", base_ctx(request))
