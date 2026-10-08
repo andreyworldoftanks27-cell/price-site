@@ -236,13 +236,21 @@ body {
    і окрема, трохи більша (26px замість звичайних 22px) плитка іконки —
    саме це й просили: "увеличить иконку [...] и поставить посреди". */
 .category-section { margin-bottom: 30px; }
+/* padding: 0 22px — РІВНО той самий горизонтальний відступ, що й у
+   .data-table th/td (padding: 16px 22px нижче) — без цього іконка й текст
+   заголовка секції починались від самого краю (0px), а вміст рядків
+   таблиці під ним — на 22px правіше (td padding), через що іконка
+   заголовка опинялась лівіше за іконки в рядках. Тепер обидва починаються
+   з одного й того самого x — пряма скарга користувача: "іконка посіред
+   верхнім і нижнім стовпцем не вирівняні". Правий відступ так само
+   вирівнює .category-section-count із правим краєм колонки "Ціна". */
 .category-section-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 14px;
     margin-bottom: 12px;
-    padding-bottom: 10px;
+    padding: 0 22px 10px;
     border-bottom: 1px solid var(--border);
 }
 .category-section-name {
@@ -312,6 +320,12 @@ body {
     color: var(--text);
 }
 .favorites-toolbar { margin-bottom: 14px; }
+/* Бейдж "Інший сайт" на сторінці /favorites — пряме прохання користувача
+   додавати в обране товари з інших сайтів, яких нема в нашій БД. Пунктирна
+   рамка (замість суцільної, як у звичайного .category-pill) — єдина
+   відмінність, щоб одразу було видно "це не наша категорія", лишаючись у
+   тій самій монохромній палітрі. */
+.external-badge { border-style: dashed; cursor: help; }
 
 mark {
     background: var(--accent);
@@ -620,6 +634,12 @@ mark {
 .external-live-item:hover { background: var(--surface-hover); }
 .external-live-item:last-of-type { border-bottom: none; }
 .external-live-price { font-weight: 700; font-family: 'IBM Plex Mono', monospace; white-space: nowrap; }
+.external-live-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+/* Трохи менша за звичайну .fav-toggle-btn (32px) — рядок зовнішнього
+   джерела компактніший (14px шрифт, padding 7px) за рядок таблиці
+   каталогу, і повнорозмірна зірочка там виглядала б непропорційно
+   великою. */
+.external-fav-btn { width: 26px; height: 26px; font-size: 15px; }
 /* Раніше <a href=shop_url target=_blank> (перехід на чужий сайт), тепер
    <button> — розгортає/згортає вже завантажені товари ПРЯМО тут (див.
    catalog.html, buildExternalLiveBlock) — тому скидаємо типові
