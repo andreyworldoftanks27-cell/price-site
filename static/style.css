@@ -547,6 +547,32 @@ mark {
     cursor: pointer;
 }
 .external-live-more:hover { color: var(--text); }
+/* Користувач попросив просту структуру: "1 точний відповідь, пару
+   подібних, і може знадобитися щось ще" — замість одного суцільного
+   списку. --best виділяє перший товар, що РЕАЛЬНО відповідає запиту
+   (server: relevant_count > 0), рамкою в колір акценту теми; --divider —
+   тонкий підпис-межа перед "супутніми" товарами нижче; --note — те саме
+   попередження, але зверху ВСЬОГО списку, коли жоден товар джерела не
+   містить буквально нічого зі слів запиту (чесно про це, а не мовчки
+   показувати список, що виглядає як випадковий набір). */
+.external-live-item--best {
+    border: 1px solid var(--accent);
+    background: var(--surface-hover);
+}
+.external-live-divider {
+    margin: 10px -4px 2px;
+    padding: 6px 4px 4px;
+    border-top: 1px dashed var(--border);
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.external-live-note {
+    margin: 0 -4px 8px;
+    padding: 6px 4px;
+    font-size: 13px;
+    color: var(--text-muted);
+    font-style: italic;
+}
 
 /* Line chart, plain inline SVG (points computed server-side) — no JS charting lib needed.
    Style matches the site's own dark/light theme (surface card, accent line) —
