@@ -78,6 +78,8 @@ TRANSLATIONS = {
         "favorites_clear_confirm": "Очистити весь список обраного?",
         "fav_add_title": "Додати в обране",
         "fav_remove_title": "Прибрати з обраного",
+        "favorites_external_badge": "Інший сайт",
+        "favorites_open_external_title": "Відкрити на сайті джерела",
     },
     "ru": {
         "site_title": "Реестр цен",
@@ -158,6 +160,8 @@ TRANSLATIONS = {
         "favorites_clear_confirm": "Очистить весь список избранного?",
         "fav_add_title": "Добавить в избранное",
         "fav_remove_title": "Убрать из избранного",
+        "favorites_external_badge": "Другой сайт",
+        "favorites_open_external_title": "Открыть на сайте источника",
     },
 }
 
