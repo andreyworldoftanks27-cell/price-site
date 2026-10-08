@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime
 from io import BytesIO
 from urllib.parse import quote, urljoin, urlparse
 import asyncio
@@ -670,7 +670,7 @@ def _find_card_root(anchor, href_re, max_levels: int = 8):
     return best
 
 
-async def fetch_live_prices(url: str, href_re=None, scan_limit: int = 20) -> list[dict]:
+async def fetch_live_prices(url: str, href_re=None, scan_limit: int = 100) -> list[dict]:
     """
     Тягне реальні товари (назва + ціна + ПОСИЛАННЯ на саму сторінку товару)
     зі сторінки КАТЕГОРІЇ (не пошуку — дивись пояснення вище) будь-якого з
@@ -697,6 +697,22 @@ async def fetch_live_prices(url: str, href_re=None, scan_limit: int = 20) -> lis
     _rank_live_items() нижче, ПІСЛЯ кешу — тобто сам мережевий запит і розбір
     сторінки лишаються такими ж рідкісними (кеш за URL працює, як і раніше),
     а релевантність рахується щоразу наново, дешево, вже на готових даних.
+
+    scan_limit БУВ 20 — і це й лишалось справжньою причиною того, що "труба
+    25" і "труба 28" усе одно показували ОДНАКОВИЙ список, навіть після
+    виправлення вище: перевірено живим запитом (справжній HTML категорії,
+    без виконання JS — те саме, що бачить і ця функція) — на сторінці
+    "труби" Vencon.ua реально 73 різні товари, а в Rozetka ("Трубний
+    металопрокат") — 61+ на першій же сторінці (і є ще сторінка 2). Типорозмір
+    "25" чи "28", якого шукає людина, майже завжди лежить ДЕСЬ ЗА межею
+    перших 20 карток у порядку, в якому вони йдуть у HTML (а він не
+    впорядкований за розміром) — тобто жодна з двох карток із потрібним
+    числом у назві просто ніколи не потрапляла в кеш, і _rank_live_items()
+    нижче рахувала 0 збігів для ОБОХ запитів і для ОБОХ однаково відкочувалась
+    до сортування за ціною — звідси й "список не змінюється зовсім". Підняття
+    до 100 покриває Vencon.ua повністю і більшу частину першої сторінки
+    Rozetka (повної підтримки сторінок 2+ все ще нема — це вже окрема, більша
+    зміна, не потрібна для переважної більшості запитів).
 
     Товар без знайденого посилання НЕ включаємо в результат узагалі —
     людині потрібно саме клікабельне посилання на конкретний товар, а не
@@ -2108,10 +2124,11 @@ async def live_search(request: Request, q: str = ""):
     # СТОРІНЦІ, а не переходила на чужий сайт. Для цього картці потрібно
     # ВІДРАЗУ мати під рукою більше товарів, ніж показано спочатку (8) —
     # catalog.html рендерить усі, ховає зайве через CSS і просто перемикає
-    # клас при натисканні (жодного додаткового запиту на сервер). 20 —
-    # той самий ліміт, що й scan_limit у fetch_live_prices (більше
-    # однаково немає — сторінка категорії сама по собі так далеко не
-    # розібрана).
+    # клас при натисканні (жодного додаткового запиту на сервер). Це вже НЕ
+    # той самий ліміт, що scan_limit у fetch_live_prices (той підняли до 100,
+    # саме щоб ранжування нижче мало з чого реально вибирати — див. коментар
+    # там) — тут лишається 20, бо показувати людині більше 20 карток в одній
+    # розгортці і так уже забагато.
     sources = [
         {"shop": entry["shop"], "shop_url": entry["url"], "items": _rank_live_items(items, q_tokens, limit=20)}
         for entry, items in zip(entries, items_per_entry)
@@ -2131,6 +2148,116 @@ async def live_search(request: Request, q: str = ""):
         "sources": sources,
         "links": links,
     })
+
+
+@app.get("/diagnostics", response_class=HTMLResponse)
+async def diagnostics(request: Request):
+    """
+    Користувач поскаржився: "слишком мало сайтов ищется, в основном
+    епицентр и будмаг" — для запитів на труби решта джерел (Rozetka,
+    Vencon.ua, Budia.ua, Vista.ua) майже не показуються. find_live_sources()
+    УЖЕ вибирає всі 6 магазинів для "труба" (перевірено тестами) — отже
+    проблема, якщо вона є, не у виборі джерел, а десь між вибором і показом:
+    або сам HTTP-запит до сайту не долітає / сайт його блокує (fetch_error),
+    або розмітка сторінки змінилась і наш розбір більше не підходить
+    (no_links/parse_zero). З цієї пісочниці неможливо надійно перевірити ЦЕ
+    напряму: прямий httpx/curl-запит заблокований мережевою політикою самої
+    пісочниці, а перевірка живим браузером — це вже інша IP-адреса й інший
+    запит, ніж той, що реально робить сервер на Railway. Тому — чесний
+    статус напряму з production, без потреби лізти в логи Railway.
+
+    Пусто ("ще не перевірено") для джерела, яке жоден пошук не зачіпав з
+    часу останнього перезапуску сервера чи спливання кешу (1 година) — це
+    не помилка, просто кеш порожній. Пошукайте на сайті щось, що веде на
+    потрібне джерело (наприклад "труба"), і перезавантажте цю сторінку.
+    """
+    if not require_login(request):
+        return RedirectResponse("/login", status_code=302)
+
+    rows = []
+    seen_urls = set()
+    for entry in EXTERNAL_LIVE_SOURCES:
+        url = entry["url"]
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        diag = _EXTERNAL_PRICE_DIAGNOSTICS.get(url)
+        if diag:
+            checked = datetime.fromtimestamp(diag["checked_at"]).strftime("%Y-%m-%d %H:%M:%S")
+            status = diag["status"]
+            items_found = str(diag["items_found"])
+            links_found = str(diag["links_found"])
+            error = diag["error"] or ""
+        else:
+            checked = "—"
+            status = "ще не перевірено"
+            items_found = "—"
+            links_found = "—"
+            error = ""
+        rows.append({
+            "shop": entry["shop"],
+            "url": url,
+            "status": status,
+            "items_found": items_found,
+            "links_found": links_found,
+            "checked": checked,
+            "error": error,
+        })
+
+    # Спочатку проблемні (усе, крім "ok"), серед них спочатку взагалі не
+    # перевірені — щоб саме те, що треба побачити першим, не губилось унизу
+    # довгого списку з ~60 джерел.
+    rows.sort(key=lambda r: (r["status"] == "ok", r["shop"]))
+
+    def _row_bg(status: str) -> str:
+        if status == "ok":
+            return "#1e3a1e"
+        if status == "ще не перевірено":
+            return "#2a2a2a"
+        return "#3a1e1e"
+
+    row_html = "\n".join(
+        f"""<tr style="background:{_row_bg(r['status'])}">
+            <td style="padding:8px;border:1px solid #444">{r['shop']}</td>
+            <td style="padding:8px;border:1px solid #444"><a href="{r['url']}" target="_blank" style="color:#8ab4f8">{r['url']}</a></td>
+            <td style="padding:8px;border:1px solid #444;font-weight:bold">{r['status']}</td>
+            <td style="padding:8px;border:1px solid #444">{r['links_found']}</td>
+            <td style="padding:8px;border:1px solid #444">{r['items_found']}</td>
+            <td style="padding:8px;border:1px solid #444">{r['checked']}</td>
+            <td style="padding:8px;border:1px solid #444;font-size:12px;color:#aaa">{(r['error'] or '')[:200]}</td>
+        </tr>"""
+        for r in rows
+    )
+
+    html_page = f"""<!DOCTYPE html>
+<html lang="uk"><head><meta charset="utf-8">
+<title>Діагностика зовнішніх джерел</title>
+<style>
+body {{ font-family: system-ui, sans-serif; background:#111; color:#eee; padding:24px; }}
+table {{ border-collapse: collapse; width:100%; font-size:14px; }}
+h1 {{ font-size:20px; }}
+p {{ color:#aaa; max-width:900px; }}
+</style></head>
+<body>
+<h1>Діагностика зовнішніх джерел ціни</h1>
+<p>Статус кожного джерела з останньої спроби (кеш живе 1 годину). "ще не перевірено" —
+ніхто не шукав нічого, що веде на це джерело, з часу останнього перезапуску сервера чи
+минулого кешу — пошукайте щось відповідне на сайті й перезавантажте цю сторінку, щоб
+побачити свіжі дані.</p>
+<table>
+<tr style="text-align:left">
+<th style="padding:8px;border:1px solid #444">Магазин</th>
+<th style="padding:8px;border:1px solid #444">URL категорії</th>
+<th style="padding:8px;border:1px solid #444">Статус</th>
+<th style="padding:8px;border:1px solid #444">Посилань на товар</th>
+<th style="padding:8px;border:1px solid #444">Розібрано товарів</th>
+<th style="padding:8px;border:1px solid #444">Перевірено</th>
+<th style="padding:8px;border:1px solid #444">Помилка</th>
+</tr>
+{row_html}
+</table>
+</body></html>"""
+    return HTMLResponse(html_page)
 
 
 @app.get("/material/{material_id}/history", response_class=HTMLResponse)
